@@ -1,0 +1,58 @@
+-- Os caminhos citados na resposta viram botões que abrem o arquivo no
+-- programa do sistema; esta é a dica do botão.
+insert into public.translations (locale, key, value) values
+  ('pt-BR', 'chat.openFile', $json$"Abrir {path} no aplicativo do sistema"$json$::jsonb),
+  ('en', 'chat.openFile', $json$"Open {path} in the system app"$json$::jsonb),
+  ('es', 'chat.openFile', $json$"Abrir {path} en la aplicación del sistema"$json$::jsonb),
+  ('zh-CN', 'chat.openFile', $json$"用系统应用打开 {path}"$json$::jsonb),
+  ('hi', 'chat.openFile', $json$"{path} को सिस्टम ऐप में खोलें"$json$::jsonb),
+  ('ar', 'chat.openFile', $json$"افتح {path} في تطبيق النظام"$json$::jsonb),
+  ('fr', 'chat.openFile', $json$"Ouvrir {path} dans l'application du système"$json$::jsonb),
+  ('ru', 'chat.openFile', $json$"Открыть {path} в системном приложении"$json$::jsonb),
+  ('ja', 'chat.openFile', $json$"{path} をシステムのアプリで開く"$json$::jsonb),
+  ('de', 'chat.openFile', $json$"{path} in der System-App öffnen"$json$::jsonb)
+on conflict (locale, key) do update set value = excluded.value;
+
+-- O que dá errado ao abrir: o núcleo devolve a chave, a tela traduz.
+insert into public.translations (locale, key, value) values
+  ('pt-BR', 'file.open.noFolder', $json$"Este projeto não tem pasta no disco, então não há o que abrir."$json$::jsonb),
+  ('pt-BR', 'file.open.outside', $json$"{path} está fora da pasta do projeto e não será aberto."$json$::jsonb),
+  ('pt-BR', 'file.open.notFound', $json$"{path} não foi encontrado na pasta do projeto."$json$::jsonb),
+  ('pt-BR', 'file.open.failed', $json$"Não foi possível abrir {path}: {reason}"$json$::jsonb),
+  ('en', 'file.open.noFolder', $json$"This project has no folder on disk, so there is nothing to open."$json$::jsonb),
+  ('en', 'file.open.outside', $json$"{path} is outside the project folder and will not be opened."$json$::jsonb),
+  ('en', 'file.open.notFound', $json$"{path} was not found in the project folder."$json$::jsonb),
+  ('en', 'file.open.failed', $json$"Could not open {path}: {reason}"$json$::jsonb),
+  ('es', 'file.open.noFolder', $json$"Este proyecto no tiene carpeta en el disco, así que no hay nada que abrir."$json$::jsonb),
+  ('es', 'file.open.outside', $json$"{path} está fuera de la carpeta del proyecto y no se abrirá."$json$::jsonb),
+  ('es', 'file.open.notFound', $json$"No se encontró {path} en la carpeta del proyecto."$json$::jsonb),
+  ('es', 'file.open.failed', $json$"No se pudo abrir {path}: {reason}"$json$::jsonb),
+  ('zh-CN', 'file.open.noFolder', $json$"此项目在磁盘上没有文件夹，无法打开任何文件。"$json$::jsonb),
+  ('zh-CN', 'file.open.outside', $json$"{path} 位于项目文件夹之外，不会被打开。"$json$::jsonb),
+  ('zh-CN', 'file.open.notFound', $json$"在项目文件夹中找不到 {path}。"$json$::jsonb),
+  ('zh-CN', 'file.open.failed', $json$"无法打开 {path}：{reason}"$json$::jsonb),
+  ('hi', 'file.open.noFolder', $json$"इस प्रोजेक्ट का डिस्क पर कोई फ़ोल्डर नहीं है, इसलिए खोलने के लिए कुछ नहीं है।"$json$::jsonb),
+  ('hi', 'file.open.outside', $json$"{path} प्रोजेक्ट फ़ोल्डर के बाहर है और नहीं खोला जाएगा।"$json$::jsonb),
+  ('hi', 'file.open.notFound', $json$"प्रोजेक्ट फ़ोल्डर में {path} नहीं मिला।"$json$::jsonb),
+  ('hi', 'file.open.failed', $json$"{path} नहीं खोला जा सका: {reason}"$json$::jsonb),
+  ('ar', 'file.open.noFolder', $json$"لا يحتوي هذا المشروع على مجلد على القرص، لذا لا يوجد ما يمكن فتحه."$json$::jsonb),
+  ('ar', 'file.open.outside', $json$"{path} خارج مجلد المشروع ولن يتم فتحه."$json$::jsonb),
+  ('ar', 'file.open.notFound', $json$"لم يتم العثور على {path} في مجلد المشروع."$json$::jsonb),
+  ('ar', 'file.open.failed', $json$"تعذّر فتح {path}: {reason}"$json$::jsonb),
+  ('fr', 'file.open.noFolder', $json$"Ce projet n'a pas de dossier sur le disque, il n'y a donc rien à ouvrir."$json$::jsonb),
+  ('fr', 'file.open.outside', $json$"{path} est en dehors du dossier du projet et ne sera pas ouvert."$json$::jsonb),
+  ('fr', 'file.open.notFound', $json$"{path} est introuvable dans le dossier du projet."$json$::jsonb),
+  ('fr', 'file.open.failed', $json$"Impossible d'ouvrir {path} : {reason}"$json$::jsonb),
+  ('ru', 'file.open.noFolder', $json$"У этого проекта нет папки на диске, поэтому открывать нечего."$json$::jsonb),
+  ('ru', 'file.open.outside', $json$"{path} находится вне папки проекта и не будет открыт."$json$::jsonb),
+  ('ru', 'file.open.notFound', $json$"{path} не найден в папке проекта."$json$::jsonb),
+  ('ru', 'file.open.failed', $json$"Не удалось открыть {path}: {reason}"$json$::jsonb),
+  ('ja', 'file.open.noFolder', $json$"このプロジェクトにはディスク上のフォルダーがないため、開くものがありません。"$json$::jsonb),
+  ('ja', 'file.open.outside', $json$"{path} はプロジェクトフォルダーの外にあるため開きません。"$json$::jsonb),
+  ('ja', 'file.open.notFound', $json$"プロジェクトフォルダーに {path} が見つかりません。"$json$::jsonb),
+  ('ja', 'file.open.failed', $json$"{path} を開けませんでした: {reason}"$json$::jsonb),
+  ('de', 'file.open.noFolder', $json$"Dieses Projekt hat keinen Ordner auf der Festplatte, daher gibt es nichts zu öffnen."$json$::jsonb),
+  ('de', 'file.open.outside', $json$"{path} liegt außerhalb des Projektordners und wird nicht geöffnet."$json$::jsonb),
+  ('de', 'file.open.notFound', $json$"{path} wurde im Projektordner nicht gefunden."$json$::jsonb),
+  ('de', 'file.open.failed', $json$"{path} konnte nicht geöffnet werden: {reason}"$json$::jsonb)
+on conflict (locale, key) do update set value = excluded.value;

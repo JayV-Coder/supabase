@@ -1,0 +1,7 @@
+# Só o que o projeto remoto precisa saber daqui: o vínculo e a função `jev`,
+# que confere o token sozinha (`auth.getClaims`) porque o projeto assina com
+# ES256 e o portão legado da plataforma só entende HS256.
+project_id = "exvsozyemolrjbjetqww"
+
+[functions.jev]
+verify_jwt = false
