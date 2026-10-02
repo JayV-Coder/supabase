@@ -1,0 +1,17 @@
+# Supabase
+.supabase/
+.temp/
+
+# Serena
+.serena/
+
+# Environment
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
