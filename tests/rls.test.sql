@@ -2,7 +2,7 @@
 -- conteúdo global; a escrita atrasada não passa por cima da recente.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(23);
+select plan(30);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-00000000000a', 'a@teste.local'),
@@ -84,6 +84,23 @@ select throws_ok($$update public.profiles set gender = 'woman', gender_custom = 
 select throws_ok($$insert into public.profiles (user_id, display_name) values (auth.uid(), 'x')$$, '42501', null, 'o cliente não cria perfil');
 select throws_ok($$delete from public.profiles$$, '42501', null, 'o cliente não apaga perfil');
 select results_eq($$select public.account_has_password()$$, $$values (true)$$, 'a conta com senha diz que tem');
+
+-- Nome de usuário: gerado, único sem diferenciar caixa, com sufixo na colisão.
+reset role;
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('00000000-0000-0000-0000-00000000000e', 'carla@outro.local', '{}');
+select is((select username from public.profiles where user_id = '00000000-0000-0000-0000-00000000000c'), 'carla', 'o e-mail dá o nome de usuário');
+select is((select username from public.profiles where user_id = '00000000-0000-0000-0000-00000000000e'), 'carla-2', 'a colisão ganha sufixo');
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000c');
+select throws_ok($$update public.profiles set username = 'Ana!' where user_id = auth.uid()$$, '23514', null, 'formato fora da regra é recusado');
+select throws_ok($$update public.profiles set username = 'devd' where user_id = auth.uid()$$, '23505', null, 'nome de outro é recusado');
+select results_eq($$select public.username_available('devd'), public.username_available('carla'), public.username_available('nova-ana'), public.username_available('a')$$,
+  $$values (false, true, true, false)$$, 'disponibilidade: de outro não, o próprio sim, livre sim, curto não');
+select lives_ok($$update public.profiles set username = 'nova-ana' where user_id = auth.uid()$$, 'o dono troca o próprio nome de usuário');
+reset role;
+set local role anon;
+select throws_ok($$select public.username_available('x')$$, '42501', null, 'sem sessão não consulta nomes');
+reset role;
 
 select * from finish();
 rollback;
