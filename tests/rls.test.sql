@@ -2,7 +2,7 @@
 -- conteúdo global; a escrita atrasada não passa por cima da recente.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(14);
+select plan(23);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-00000000000a', 'a@teste.local'),
@@ -68,6 +68,22 @@ reset role;
 set local role anon;
 select isnt_empty($$select key from public.translations where locale = 'pt-BR'$$, 'a tela de login lê as traduções sem sessão');
 select throws_ok($$select id from public.jev_questions$$, '42501', null, 'as instruções do Jev não são públicas');
+
+-- Perfil: nasce com a conta, só o dono lê e muda, valores fechados.
+reset role;
+insert into auth.users (id, email, raw_user_meta_data, encrypted_password) values
+  ('00000000-0000-0000-0000-00000000000c', 'carla@teste.local', '{"display_name":"Carla"}', 'x'),
+  ('00000000-0000-0000-0000-00000000000d', 'dev.d@teste.local', '{"user_name":"devd"}', '');
+select is((select display_name from public.profiles where user_id = '00000000-0000-0000-0000-00000000000c'), 'Carla', 'o registro dá o nome');
+select is((select display_name from public.profiles where user_id = '00000000-0000-0000-0000-00000000000d'), 'devd', 'o OAuth dá o nome');
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000c');
+select is_empty($$select 1 from public.profiles where user_id <> auth.uid()$$, 'ninguém lê o perfil de outro');
+select lives_ok($$update public.profiles set gender = 'other', gender_custom = 'agênero' where user_id = auth.uid()$$, 'o dono muda o próprio perfil');
+select throws_ok($$update public.profiles set sex = 'x' where user_id = auth.uid()$$, '23514', null, 'valor fora da lista é recusado');
+select throws_ok($$update public.profiles set gender = 'woman', gender_custom = 'x' where user_id = auth.uid()$$, '23514', null, 'texto livre só com other');
+select throws_ok($$insert into public.profiles (user_id, display_name) values (auth.uid(), 'x')$$, '42501', null, 'o cliente não cria perfil');
+select throws_ok($$delete from public.profiles$$, '42501', null, 'o cliente não apaga perfil');
+select results_eq($$select public.account_has_password()$$, $$values (true)$$, 'a conta com senha diz que tem');
 
 select * from finish();
 rollback;
