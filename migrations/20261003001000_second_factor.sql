@@ -1,0 +1,310 @@
+-- O segundo fator (app autenticador, TOTP) do Supabase Auth. O app pede o
+-- código depois da senha ou do provedor, mas a porta de verdade é aqui: uma
+-- sessão `aal1` de uma conta com app autenticador confirmado não lê nem
+-- escreve nada além dos textos da tela. Assim a senha vazada sozinha não
+-- abre os dados, nem pela API direto.
+--
+-- No painel do Supabase: Authentication → Multi-Factor → TOTP precisa estar
+-- habilitado (o padrão dos projetos hospedados).
+
+-- A sessão atende ao que a conta exige: tem `aal2` ou a conta não tem app
+-- autenticador confirmado. Sem sessão (anon) não há o que exigir.
+create function public.second_factor_ok() returns boolean language sql stable security definer set search_path = '' as $$
+  select auth.uid() is null
+      or coalesce(auth.jwt() ->> 'aal', 'aal1') = 'aal2'
+      or not exists (select 1 from auth.mfa_factors f where f.user_id = auth.uid() and f.status::text = 'verified');
+$$;
+revoke execute on function public.second_factor_ok() from public;
+grant execute on function public.second_factor_ok() to anon, authenticated;
+
+-- 1. Toda tabela com RLS ganha uma política restritiva: vale junto das que
+-- já existem (inclusive para o Realtime, que não passa pelo PostgREST).
+-- Idiomas e textos ficam de fora: a tela do código precisa deles.
+do $$
+declare
+  name text;
+begin
+  for name in
+    select c.relname from pg_class c join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public' and c.relkind = 'r' and c.relrowsecurity
+      and c.relname not in ('locales', 'translations')
+  loop
+    execute format('create policy "segundo fator" on public.%I as restrictive to authenticated using ((select public.second_factor_ok())) with check ((select public.second_factor_ok()))', name);
+  end loop;
+end
+$$;
+
+-- 2. As funções `security definer` não passam pela RLS: o PostgREST roda
+-- esta checagem antes de cada pedido (tabela ou RPC) e recusa com 403.
+create function public.require_second_factor() returns void language plpgsql stable security definer set search_path = '' as $$
+begin
+  if coalesce(current_setting('request.path', true), '') in ('/translations', '/locales') then
+    return;
+  end if;
+  if not public.second_factor_ok() then
+    raise sqlstate 'PT403' using message = 'second factor required', hint = 'aal2';
+  end if;
+end
+$$;
+revoke execute on function public.require_second_factor() from public;
+grant execute on function public.require_second_factor() to anon, authenticated;
+
+alter role authenticator set pgrst.db_pre_request = 'public.require_second_factor';
+notify pgrst, 'reload config';
+
+-- Tabela nova que ligar a RLS depois desta migração precisa da mesma
+-- política "segundo fator".
+
+-- A tela do código, o painel do app autenticador e os erros, nos dez idiomas.
+insert into public.translations (locale, key, value) values
+  ('pt-BR', 'auth.secondFactor.title', $json$"Verificação em duas etapas"$json$::jsonb),
+  ('pt-BR', 'auth.secondFactor.description', $json$"Digite o código de 6 dígitos que o seu app autenticador mostra para o JayV."$json$::jsonb),
+  ('pt-BR', 'auth.secondFactor.code', $json$"Código do autenticador"$json$::jsonb),
+  ('pt-BR', 'auth.secondFactor.verify', $json$"Verificar"$json$::jsonb),
+  ('pt-BR', 'auth.secondFactor.other', $json$"Entrar com outra conta"$json$::jsonb),
+  ('pt-BR', 'auth.mfa.badCode', $json$"Código errado ou expirado. Digite o que o app mostra agora."$json$::jsonb),
+  ('pt-BR', 'auth.mfa.missing', $json$"Esta conta não tem app autenticador configurado."$json$::jsonb),
+  ('pt-BR', 'auth.mfa.disabled', $json$"Os apps autenticadores ainda não estão habilitados no servidor."$json$::jsonb),
+  ('pt-BR', 'security.totp', $json$"Código do app autenticador"$json$::jsonb),
+  ('pt-BR', 'twoFactor.title', $json$"Autenticação de dois fatores"$json$::jsonb),
+  ('pt-BR', 'twoFactor.description', $json$"Além da senha ou da conta vinculada, entrar pede um código de um app autenticador no seu celular."$json$::jsonb),
+  ('pt-BR', 'twoFactor.badge.on', $json$"Ativada"$json$::jsonb),
+  ('pt-BR', 'twoFactor.badge.off', $json$"Desativada"$json$::jsonb),
+  ('pt-BR', 'twoFactor.off', $json$"Quem souber a sua senha consegue entrar. Ative para pedir também um código do seu celular."$json$::jsonb),
+  ('pt-BR', 'twoFactor.on', $json$"Entrar pede um código do seu app autenticador."$json$::jsonb),
+  ('pt-BR', 'twoFactor.enable', $json$"Ativar"$json$::jsonb),
+  ('pt-BR', 'twoFactor.scan', $json$"Leia o QR code com um app autenticador (Google Authenticator, Microsoft Authenticator, 1Password, Authy…) e digite o código de 6 dígitos que ele mostrar."$json$::jsonb),
+  ('pt-BR', 'twoFactor.secret', $json$"Não consegue ler? Digite esta chave no app:"$json$::jsonb),
+  ('pt-BR', 'twoFactor.code', $json$"Código do app"$json$::jsonb),
+  ('pt-BR', 'twoFactor.warning', $json$"Guarde o app no celular: sem ele você não consegue entrar, nem redefinindo a senha."$json$::jsonb),
+  ('pt-BR', 'twoFactor.confirm', $json$"Confirmar e ativar"$json$::jsonb),
+  ('pt-BR', 'twoFactor.enabled', $json$"Autenticação de dois fatores ativada."$json$::jsonb),
+  ('pt-BR', 'twoFactor.remove', $json$"Desativar"$json$::jsonb),
+  ('pt-BR', 'twoFactor.removeHint', $json$"Digite o código que o app mostra agora para desativar."$json$::jsonb),
+  ('pt-BR', 'twoFactor.removed', $json$"Autenticação de dois fatores desativada."$json$::jsonb),
+  ('en', 'auth.secondFactor.title', $json$"Two-step verification"$json$::jsonb),
+  ('en', 'auth.secondFactor.description', $json$"Enter the 6-digit code your authenticator app shows for JayV."$json$::jsonb),
+  ('en', 'auth.secondFactor.code', $json$"Authenticator code"$json$::jsonb),
+  ('en', 'auth.secondFactor.verify', $json$"Verify"$json$::jsonb),
+  ('en', 'auth.secondFactor.other', $json$"Sign in with another account"$json$::jsonb),
+  ('en', 'auth.mfa.badCode', $json$"Wrong or expired code. Type the one the app shows now."$json$::jsonb),
+  ('en', 'auth.mfa.missing', $json$"This account has no authenticator app set up."$json$::jsonb),
+  ('en', 'auth.mfa.disabled', $json$"Authenticator apps are not enabled on the server yet."$json$::jsonb),
+  ('en', 'security.totp', $json$"Code from the authenticator app"$json$::jsonb),
+  ('en', 'twoFactor.title', $json$"Two-factor authentication"$json$::jsonb),
+  ('en', 'twoFactor.description', $json$"Besides the password or linked account, signing in asks for a code from an authenticator app on your phone."$json$::jsonb),
+  ('en', 'twoFactor.badge.on', $json$"On"$json$::jsonb),
+  ('en', 'twoFactor.badge.off', $json$"Off"$json$::jsonb),
+  ('en', 'twoFactor.off', $json$"Anyone who knows your password can sign in. Turn it on to also ask for a code from your phone."$json$::jsonb),
+  ('en', 'twoFactor.on', $json$"Signing in asks for a code from your authenticator app."$json$::jsonb),
+  ('en', 'twoFactor.enable', $json$"Turn on"$json$::jsonb),
+  ('en', 'twoFactor.scan', $json$"Scan the QR code with an authenticator app (Google Authenticator, Microsoft Authenticator, 1Password, Authy…) and type the 6-digit code it shows."$json$::jsonb),
+  ('en', 'twoFactor.secret', $json$"Can't scan it? Type this key in the app:"$json$::jsonb),
+  ('en', 'twoFactor.code', $json$"Code from the app"$json$::jsonb),
+  ('en', 'twoFactor.warning', $json$"Keep the app on your phone: without it you can't sign in, not even by resetting the password."$json$::jsonb),
+  ('en', 'twoFactor.confirm', $json$"Confirm and turn on"$json$::jsonb),
+  ('en', 'twoFactor.enabled', $json$"Two-factor authentication is on."$json$::jsonb),
+  ('en', 'twoFactor.remove', $json$"Turn off"$json$::jsonb),
+  ('en', 'twoFactor.removeHint', $json$"Type the code the app shows now to turn it off."$json$::jsonb),
+  ('en', 'twoFactor.removed', $json$"Two-factor authentication is off."$json$::jsonb),
+  ('es', 'auth.secondFactor.title', $json$"Verificación en dos pasos"$json$::jsonb),
+  ('es', 'auth.secondFactor.description', $json$"Escribe el código de 6 dígitos que tu app de autenticación muestra para JayV."$json$::jsonb),
+  ('es', 'auth.secondFactor.code', $json$"Código del autenticador"$json$::jsonb),
+  ('es', 'auth.secondFactor.verify', $json$"Verificar"$json$::jsonb),
+  ('es', 'auth.secondFactor.other', $json$"Entrar con otra cuenta"$json$::jsonb),
+  ('es', 'auth.mfa.badCode', $json$"Código incorrecto o caducado. Escribe el que muestra la app ahora."$json$::jsonb),
+  ('es', 'auth.mfa.missing', $json$"Esta cuenta no tiene una app de autenticación configurada."$json$::jsonb),
+  ('es', 'auth.mfa.disabled', $json$"Las apps de autenticación aún no están habilitadas en el servidor."$json$::jsonb),
+  ('es', 'security.totp', $json$"Código de la app de autenticación"$json$::jsonb),
+  ('es', 'twoFactor.title', $json$"Autenticación de dos factores"$json$::jsonb),
+  ('es', 'twoFactor.description', $json$"Además de la contraseña o la cuenta vinculada, para entrar se pide un código de una app de autenticación en tu móvil."$json$::jsonb),
+  ('es', 'twoFactor.badge.on', $json$"Activada"$json$::jsonb),
+  ('es', 'twoFactor.badge.off', $json$"Desactivada"$json$::jsonb),
+  ('es', 'twoFactor.off', $json$"Quien sepa tu contraseña puede entrar. Actívala para pedir también un código de tu móvil."$json$::jsonb),
+  ('es', 'twoFactor.on', $json$"Para entrar se pide un código de tu app de autenticación."$json$::jsonb),
+  ('es', 'twoFactor.enable', $json$"Activar"$json$::jsonb),
+  ('es', 'twoFactor.scan', $json$"Escanea el código QR con una app de autenticación (Google Authenticator, Microsoft Authenticator, 1Password, Authy…) y escribe el código de 6 dígitos que muestre."$json$::jsonb),
+  ('es', 'twoFactor.secret', $json$"¿No puedes escanearlo? Escribe esta clave en la app:"$json$::jsonb),
+  ('es', 'twoFactor.code', $json$"Código de la app"$json$::jsonb),
+  ('es', 'twoFactor.warning', $json$"Conserva la app en tu móvil: sin ella no podrás entrar, ni siquiera restableciendo la contraseña."$json$::jsonb),
+  ('es', 'twoFactor.confirm', $json$"Confirmar y activar"$json$::jsonb),
+  ('es', 'twoFactor.enabled', $json$"Autenticación de dos factores activada."$json$::jsonb),
+  ('es', 'twoFactor.remove', $json$"Desactivar"$json$::jsonb),
+  ('es', 'twoFactor.removeHint', $json$"Escribe el código que muestra la app ahora para desactivarla."$json$::jsonb),
+  ('es', 'twoFactor.removed', $json$"Autenticación de dos factores desactivada."$json$::jsonb),
+  ('zh-CN', 'auth.secondFactor.title', $json$"两步验证"$json$::jsonb),
+  ('zh-CN', 'auth.secondFactor.description', $json$"输入身份验证器应用为 JayV 显示的 6 位验证码。"$json$::jsonb),
+  ('zh-CN', 'auth.secondFactor.code', $json$"验证器代码"$json$::jsonb),
+  ('zh-CN', 'auth.secondFactor.verify', $json$"验证"$json$::jsonb),
+  ('zh-CN', 'auth.secondFactor.other', $json$"使用其他账户登录"$json$::jsonb),
+  ('zh-CN', 'auth.mfa.badCode', $json$"验证码错误或已过期。请输入应用当前显示的验证码。"$json$::jsonb),
+  ('zh-CN', 'auth.mfa.missing', $json$"此账户尚未设置身份验证器应用。"$json$::jsonb),
+  ('zh-CN', 'auth.mfa.disabled', $json$"服务器尚未启用身份验证器应用。"$json$::jsonb),
+  ('zh-CN', 'security.totp', $json$"身份验证器应用中的代码"$json$::jsonb),
+  ('zh-CN', 'twoFactor.title', $json$"双重身份验证"$json$::jsonb),
+  ('zh-CN', 'twoFactor.description', $json$"除了密码或关联账户外，登录时还需要输入手机上身份验证器应用中的代码。"$json$::jsonb),
+  ('zh-CN', 'twoFactor.badge.on', $json$"已开启"$json$::jsonb),
+  ('zh-CN', 'twoFactor.badge.off', $json$"已关闭"$json$::jsonb),
+  ('zh-CN', 'twoFactor.off', $json$"任何知道你密码的人都能登录。开启后还会要求输入手机上的代码。"$json$::jsonb),
+  ('zh-CN', 'twoFactor.on', $json$"登录时需要输入身份验证器应用中的代码。"$json$::jsonb),
+  ('zh-CN', 'twoFactor.enable', $json$"开启"$json$::jsonb),
+  ('zh-CN', 'twoFactor.scan', $json$"使用身份验证器应用（Google Authenticator、Microsoft Authenticator、1Password、Authy…）扫描二维码，然后输入显示的 6 位验证码。"$json$::jsonb),
+  ('zh-CN', 'twoFactor.secret', $json$"无法扫描？请在应用中输入此密钥："$json$::jsonb),
+  ('zh-CN', 'twoFactor.code', $json$"应用中的代码"$json$::jsonb),
+  ('zh-CN', 'twoFactor.warning', $json$"请保留手机上的应用：没有它你将无法登录，即使重置密码也不行。"$json$::jsonb),
+  ('zh-CN', 'twoFactor.confirm', $json$"确认并开启"$json$::jsonb),
+  ('zh-CN', 'twoFactor.enabled', $json$"双重身份验证已开启。"$json$::jsonb),
+  ('zh-CN', 'twoFactor.remove', $json$"关闭"$json$::jsonb),
+  ('zh-CN', 'twoFactor.removeHint', $json$"输入应用当前显示的代码以关闭。"$json$::jsonb),
+  ('zh-CN', 'twoFactor.removed', $json$"双重身份验证已关闭。"$json$::jsonb),
+  ('hi', 'auth.secondFactor.title', $json$"दो-चरणीय सत्यापन"$json$::jsonb),
+  ('hi', 'auth.secondFactor.description', $json$"अपने ऑथेंटिकेटर ऐप में JayV के लिए दिखाया गया 6 अंकों का कोड दर्ज करें।"$json$::jsonb),
+  ('hi', 'auth.secondFactor.code', $json$"ऑथेंटिकेटर कोड"$json$::jsonb),
+  ('hi', 'auth.secondFactor.verify', $json$"सत्यापित करें"$json$::jsonb),
+  ('hi', 'auth.secondFactor.other', $json$"दूसरे खाते से साइन इन करें"$json$::jsonb),
+  ('hi', 'auth.mfa.badCode', $json$"कोड गलत है या उसकी अवधि समाप्त हो गई है। ऐप में अभी दिख रहा कोड दर्ज करें।"$json$::jsonb),
+  ('hi', 'auth.mfa.missing', $json$"इस खाते में कोई ऑथेंटिकेटर ऐप सेट नहीं है।"$json$::jsonb),
+  ('hi', 'auth.mfa.disabled', $json$"सर्वर पर अभी ऑथेंटिकेटर ऐप सक्षम नहीं हैं।"$json$::jsonb),
+  ('hi', 'security.totp', $json$"ऑथेंटिकेटर ऐप का कोड"$json$::jsonb),
+  ('hi', 'twoFactor.title', $json$"दो-कारक प्रमाणीकरण"$json$::jsonb),
+  ('hi', 'twoFactor.description', $json$"पासवर्ड या लिंक किए गए खाते के अलावा, साइन इन करते समय आपके फ़ोन के ऑथेंटिकेटर ऐप का कोड माँगा जाता है।"$json$::jsonb),
+  ('hi', 'twoFactor.badge.on', $json$"चालू"$json$::jsonb),
+  ('hi', 'twoFactor.badge.off', $json$"बंद"$json$::jsonb),
+  ('hi', 'twoFactor.off', $json$"जो भी आपका पासवर्ड जानता है वह साइन इन कर सकता है। इसे चालू करें ताकि आपके फ़ोन का कोड भी माँगा जाए।"$json$::jsonb),
+  ('hi', 'twoFactor.on', $json$"साइन इन करते समय आपके ऑथेंटिकेटर ऐप का कोड माँगा जाता है।"$json$::jsonb),
+  ('hi', 'twoFactor.enable', $json$"चालू करें"$json$::jsonb),
+  ('hi', 'twoFactor.scan', $json$"किसी ऑथेंटिकेटर ऐप (Google Authenticator, Microsoft Authenticator, 1Password, Authy…) से QR कोड स्कैन करें और उसमें दिखने वाला 6 अंकों का कोड दर्ज करें।"$json$::jsonb),
+  ('hi', 'twoFactor.secret', $json$"स्कैन नहीं हो रहा? ऐप में यह कुंजी दर्ज करें:"$json$::jsonb),
+  ('hi', 'twoFactor.code', $json$"ऐप का कोड"$json$::jsonb),
+  ('hi', 'twoFactor.warning', $json$"ऐप को अपने फ़ोन में रखें: इसके बिना आप साइन इन नहीं कर पाएँगे, पासवर्ड रीसेट करके भी नहीं।"$json$::jsonb),
+  ('hi', 'twoFactor.confirm', $json$"पुष्टि करें और चालू करें"$json$::jsonb),
+  ('hi', 'twoFactor.enabled', $json$"दो-कारक प्रमाणीकरण चालू है।"$json$::jsonb),
+  ('hi', 'twoFactor.remove', $json$"बंद करें"$json$::jsonb),
+  ('hi', 'twoFactor.removeHint', $json$"बंद करने के लिए ऐप में अभी दिख रहा कोड दर्ज करें।"$json$::jsonb),
+  ('hi', 'twoFactor.removed', $json$"दो-कारक प्रमाणीकरण बंद है।"$json$::jsonb),
+  ('ar', 'auth.secondFactor.title', $json$"التحقق بخطوتين"$json$::jsonb),
+  ('ar', 'auth.secondFactor.description', $json$"أدخل الرمز المكوّن من 6 أرقام الذي يعرضه تطبيق المصادقة لـ JayV."$json$::jsonb),
+  ('ar', 'auth.secondFactor.code', $json$"رمز المصادقة"$json$::jsonb),
+  ('ar', 'auth.secondFactor.verify', $json$"تحقق"$json$::jsonb),
+  ('ar', 'auth.secondFactor.other', $json$"تسجيل الدخول بحساب آخر"$json$::jsonb),
+  ('ar', 'auth.mfa.badCode', $json$"الرمز خاطئ أو منتهي الصلاحية. أدخل الرمز الذي يعرضه التطبيق الآن."$json$::jsonb),
+  ('ar', 'auth.mfa.missing', $json$"لا يوجد تطبيق مصادقة مُعدّ لهذا الحساب."$json$::jsonb),
+  ('ar', 'auth.mfa.disabled', $json$"تطبيقات المصادقة غير مفعّلة على الخادم بعد."$json$::jsonb),
+  ('ar', 'security.totp', $json$"الرمز من تطبيق المصادقة"$json$::jsonb),
+  ('ar', 'twoFactor.title', $json$"المصادقة الثنائية"$json$::jsonb),
+  ('ar', 'twoFactor.description', $json$"إلى جانب كلمة المرور أو الحساب المرتبط، يطلب تسجيل الدخول رمزًا من تطبيق مصادقة على هاتفك."$json$::jsonb),
+  ('ar', 'twoFactor.badge.on', $json$"مفعّلة"$json$::jsonb),
+  ('ar', 'twoFactor.badge.off', $json$"معطّلة"$json$::jsonb),
+  ('ar', 'twoFactor.off', $json$"يمكن لأي شخص يعرف كلمة مرورك تسجيل الدخول. فعّلها لطلب رمز من هاتفك أيضًا."$json$::jsonb),
+  ('ar', 'twoFactor.on', $json$"يطلب تسجيل الدخول رمزًا من تطبيق المصادقة لديك."$json$::jsonb),
+  ('ar', 'twoFactor.enable', $json$"تفعيل"$json$::jsonb),
+  ('ar', 'twoFactor.scan', $json$"امسح رمز QR بتطبيق مصادقة (Google Authenticator أو Microsoft Authenticator أو 1Password أو Authy…) وأدخل الرمز المكوّن من 6 أرقام الذي يعرضه."$json$::jsonb),
+  ('ar', 'twoFactor.secret', $json$"لا يمكنك المسح؟ أدخل هذا المفتاح في التطبيق:"$json$::jsonb),
+  ('ar', 'twoFactor.code', $json$"الرمز من التطبيق"$json$::jsonb),
+  ('ar', 'twoFactor.warning', $json$"احتفظ بالتطبيق على هاتفك: بدونه لن تتمكن من تسجيل الدخول، ولا حتى بإعادة تعيين كلمة المرور."$json$::jsonb),
+  ('ar', 'twoFactor.confirm', $json$"تأكيد وتفعيل"$json$::jsonb),
+  ('ar', 'twoFactor.enabled', $json$"تم تفعيل المصادقة الثنائية."$json$::jsonb),
+  ('ar', 'twoFactor.remove', $json$"تعطيل"$json$::jsonb),
+  ('ar', 'twoFactor.removeHint', $json$"أدخل الرمز الذي يعرضه التطبيق الآن لتعطيلها."$json$::jsonb),
+  ('ar', 'twoFactor.removed', $json$"تم تعطيل المصادقة الثنائية."$json$::jsonb),
+  ('fr', 'auth.secondFactor.title', $json$"Validation en deux étapes"$json$::jsonb),
+  ('fr', 'auth.secondFactor.description', $json$"Saisissez le code à 6 chiffres que votre application d’authentification affiche pour JayV."$json$::jsonb),
+  ('fr', 'auth.secondFactor.code', $json$"Code d’authentification"$json$::jsonb),
+  ('fr', 'auth.secondFactor.verify', $json$"Vérifier"$json$::jsonb),
+  ('fr', 'auth.secondFactor.other', $json$"Se connecter avec un autre compte"$json$::jsonb),
+  ('fr', 'auth.mfa.badCode', $json$"Code erroné ou expiré. Saisissez celui que l’application affiche maintenant."$json$::jsonb),
+  ('fr', 'auth.mfa.missing', $json$"Ce compte n’a pas d’application d’authentification configurée."$json$::jsonb),
+  ('fr', 'auth.mfa.disabled', $json$"Les applications d’authentification ne sont pas encore activées sur le serveur."$json$::jsonb),
+  ('fr', 'security.totp', $json$"Code de l’application d’authentification"$json$::jsonb),
+  ('fr', 'twoFactor.title', $json$"Authentification à deux facteurs"$json$::jsonb),
+  ('fr', 'twoFactor.description', $json$"En plus du mot de passe ou du compte lié, la connexion demande un code d’une application d’authentification sur votre téléphone."$json$::jsonb),
+  ('fr', 'twoFactor.badge.on', $json$"Activée"$json$::jsonb),
+  ('fr', 'twoFactor.badge.off', $json$"Désactivée"$json$::jsonb),
+  ('fr', 'twoFactor.off', $json$"Toute personne connaissant votre mot de passe peut se connecter. Activez-la pour demander aussi un code de votre téléphone."$json$::jsonb),
+  ('fr', 'twoFactor.on', $json$"La connexion demande un code de votre application d’authentification."$json$::jsonb),
+  ('fr', 'twoFactor.enable', $json$"Activer"$json$::jsonb),
+  ('fr', 'twoFactor.scan', $json$"Scannez le QR code avec une application d’authentification (Google Authenticator, Microsoft Authenticator, 1Password, Authy…) et saisissez le code à 6 chiffres affiché."$json$::jsonb),
+  ('fr', 'twoFactor.secret', $json$"Impossible de scanner ? Saisissez cette clé dans l’application :"$json$::jsonb),
+  ('fr', 'twoFactor.code', $json$"Code de l’application"$json$::jsonb),
+  ('fr', 'twoFactor.warning', $json$"Gardez l’application sur votre téléphone : sans elle, vous ne pourrez pas vous connecter, même en réinitialisant le mot de passe."$json$::jsonb),
+  ('fr', 'twoFactor.confirm', $json$"Confirmer et activer"$json$::jsonb),
+  ('fr', 'twoFactor.enabled', $json$"Authentification à deux facteurs activée."$json$::jsonb),
+  ('fr', 'twoFactor.remove', $json$"Désactiver"$json$::jsonb),
+  ('fr', 'twoFactor.removeHint', $json$"Saisissez le code affiché maintenant par l’application pour la désactiver."$json$::jsonb),
+  ('fr', 'twoFactor.removed', $json$"Authentification à deux facteurs désactivée."$json$::jsonb),
+  ('ru', 'auth.secondFactor.title', $json$"Двухэтапная проверка"$json$::jsonb),
+  ('ru', 'auth.secondFactor.description', $json$"Введите 6-значный код, который приложение-аутентификатор показывает для JayV."$json$::jsonb),
+  ('ru', 'auth.secondFactor.code', $json$"Код аутентификатора"$json$::jsonb),
+  ('ru', 'auth.secondFactor.verify', $json$"Подтвердить"$json$::jsonb),
+  ('ru', 'auth.secondFactor.other', $json$"Войти в другой аккаунт"$json$::jsonb),
+  ('ru', 'auth.mfa.badCode', $json$"Неверный или просроченный код. Введите тот, что приложение показывает сейчас."$json$::jsonb),
+  ('ru', 'auth.mfa.missing', $json$"Для этого аккаунта не настроено приложение-аутентификатор."$json$::jsonb),
+  ('ru', 'auth.mfa.disabled', $json$"Приложения-аутентификаторы пока не включены на сервере."$json$::jsonb),
+  ('ru', 'security.totp', $json$"Код из приложения-аутентификатора"$json$::jsonb),
+  ('ru', 'twoFactor.title', $json$"Двухфакторная аутентификация"$json$::jsonb),
+  ('ru', 'twoFactor.description', $json$"Помимо пароля или привязанного аккаунта, при входе запрашивается код из приложения-аутентификатора на телефоне."$json$::jsonb),
+  ('ru', 'twoFactor.badge.on', $json$"Включена"$json$::jsonb),
+  ('ru', 'twoFactor.badge.off', $json$"Выключена"$json$::jsonb),
+  ('ru', 'twoFactor.off', $json$"Любой, кто знает ваш пароль, может войти. Включите, чтобы также запрашивать код с телефона."$json$::jsonb),
+  ('ru', 'twoFactor.on', $json$"При входе запрашивается код из приложения-аутентификатора."$json$::jsonb),
+  ('ru', 'twoFactor.enable', $json$"Включить"$json$::jsonb),
+  ('ru', 'twoFactor.scan', $json$"Отсканируйте QR-код приложением-аутентификатором (Google Authenticator, Microsoft Authenticator, 1Password, Authy…) и введите показанный 6-значный код."$json$::jsonb),
+  ('ru', 'twoFactor.secret', $json$"Не получается отсканировать? Введите этот ключ в приложении:"$json$::jsonb),
+  ('ru', 'twoFactor.code', $json$"Код из приложения"$json$::jsonb),
+  ('ru', 'twoFactor.warning', $json$"Не удаляйте приложение с телефона: без него вы не сможете войти, даже сбросив пароль."$json$::jsonb),
+  ('ru', 'twoFactor.confirm', $json$"Подтвердить и включить"$json$::jsonb),
+  ('ru', 'twoFactor.enabled', $json$"Двухфакторная аутентификация включена."$json$::jsonb),
+  ('ru', 'twoFactor.remove', $json$"Выключить"$json$::jsonb),
+  ('ru', 'twoFactor.removeHint', $json$"Введите код, который приложение показывает сейчас, чтобы выключить."$json$::jsonb),
+  ('ru', 'twoFactor.removed', $json$"Двухфакторная аутентификация выключена."$json$::jsonb),
+  ('ja', 'auth.secondFactor.title', $json$"2段階認証"$json$::jsonb),
+  ('ja', 'auth.secondFactor.description', $json$"認証アプリに表示される JayV の 6 桁のコードを入力してください。"$json$::jsonb),
+  ('ja', 'auth.secondFactor.code', $json$"認証コード"$json$::jsonb),
+  ('ja', 'auth.secondFactor.verify', $json$"確認"$json$::jsonb),
+  ('ja', 'auth.secondFactor.other', $json$"別のアカウントでサインイン"$json$::jsonb),
+  ('ja', 'auth.mfa.badCode', $json$"コードが間違っているか期限切れです。アプリに今表示されているコードを入力してください。"$json$::jsonb),
+  ('ja', 'auth.mfa.missing', $json$"このアカウントには認証アプリが設定されていません。"$json$::jsonb),
+  ('ja', 'auth.mfa.disabled', $json$"サーバーで認証アプリがまだ有効になっていません。"$json$::jsonb),
+  ('ja', 'security.totp', $json$"認証アプリのコード"$json$::jsonb),
+  ('ja', 'twoFactor.title', $json$"2要素認証"$json$::jsonb),
+  ('ja', 'twoFactor.description', $json$"パスワードや連携アカウントに加えて、サインイン時にスマートフォンの認証アプリのコードを求めます。"$json$::jsonb),
+  ('ja', 'twoFactor.badge.on', $json$"オン"$json$::jsonb),
+  ('ja', 'twoFactor.badge.off', $json$"オフ"$json$::jsonb),
+  ('ja', 'twoFactor.off', $json$"パスワードを知っている人は誰でもサインインできます。オンにするとスマートフォンのコードも求めます。"$json$::jsonb),
+  ('ja', 'twoFactor.on', $json$"サインイン時に認証アプリのコードを求めます。"$json$::jsonb),
+  ('ja', 'twoFactor.enable', $json$"オンにする"$json$::jsonb),
+  ('ja', 'twoFactor.scan', $json$"認証アプリ（Google Authenticator、Microsoft Authenticator、1Password、Authy など）で QR コードを読み取り、表示された 6 桁のコードを入力してください。"$json$::jsonb),
+  ('ja', 'twoFactor.secret', $json$"読み取れない場合は、このキーをアプリに入力してください:"$json$::jsonb),
+  ('ja', 'twoFactor.code', $json$"アプリのコード"$json$::jsonb),
+  ('ja', 'twoFactor.warning', $json$"アプリはスマートフォンに残しておいてください。アプリがないと、パスワードを再設定してもサインインできません。"$json$::jsonb),
+  ('ja', 'twoFactor.confirm', $json$"確認してオンにする"$json$::jsonb),
+  ('ja', 'twoFactor.enabled', $json$"2要素認証をオンにしました。"$json$::jsonb),
+  ('ja', 'twoFactor.remove', $json$"オフにする"$json$::jsonb),
+  ('ja', 'twoFactor.removeHint', $json$"オフにするには、アプリに今表示されているコードを入力してください。"$json$::jsonb),
+  ('ja', 'twoFactor.removed', $json$"2要素認証をオフにしました。"$json$::jsonb),
+  ('de', 'auth.secondFactor.title', $json$"Bestätigung in zwei Schritten"$json$::jsonb),
+  ('de', 'auth.secondFactor.description', $json$"Gib den 6-stelligen Code ein, den deine Authenticator-App für JayV anzeigt."$json$::jsonb),
+  ('de', 'auth.secondFactor.code', $json$"Authenticator-Code"$json$::jsonb),
+  ('de', 'auth.secondFactor.verify', $json$"Bestätigen"$json$::jsonb),
+  ('de', 'auth.secondFactor.other', $json$"Mit einem anderen Konto anmelden"$json$::jsonb),
+  ('de', 'auth.mfa.badCode', $json$"Falscher oder abgelaufener Code. Gib den Code ein, den die App jetzt anzeigt."$json$::jsonb),
+  ('de', 'auth.mfa.missing', $json$"Für dieses Konto ist keine Authenticator-App eingerichtet."$json$::jsonb),
+  ('de', 'auth.mfa.disabled', $json$"Authenticator-Apps sind auf dem Server noch nicht aktiviert."$json$::jsonb),
+  ('de', 'security.totp', $json$"Code aus der Authenticator-App"$json$::jsonb),
+  ('de', 'twoFactor.title', $json$"Zwei-Faktor-Authentifizierung"$json$::jsonb),
+  ('de', 'twoFactor.description', $json$"Zusätzlich zum Passwort oder verknüpften Konto fragt die Anmeldung nach einem Code aus einer Authenticator-App auf deinem Handy."$json$::jsonb),
+  ('de', 'twoFactor.badge.on', $json$"An"$json$::jsonb),
+  ('de', 'twoFactor.badge.off', $json$"Aus"$json$::jsonb),
+  ('de', 'twoFactor.off', $json$"Jeder, der dein Passwort kennt, kann sich anmelden. Schalte sie ein, um zusätzlich einen Code von deinem Handy zu verlangen."$json$::jsonb),
+  ('de', 'twoFactor.on', $json$"Die Anmeldung fragt nach einem Code aus deiner Authenticator-App."$json$::jsonb),
+  ('de', 'twoFactor.enable', $json$"Einschalten"$json$::jsonb),
+  ('de', 'twoFactor.scan', $json$"Scanne den QR-Code mit einer Authenticator-App (Google Authenticator, Microsoft Authenticator, 1Password, Authy…) und gib den angezeigten 6-stelligen Code ein."$json$::jsonb),
+  ('de', 'twoFactor.secret', $json$"Scannen klappt nicht? Gib diesen Schlüssel in der App ein:"$json$::jsonb),
+  ('de', 'twoFactor.code', $json$"Code aus der App"$json$::jsonb),
+  ('de', 'twoFactor.warning', $json$"Behalte die App auf deinem Handy: Ohne sie kannst du dich nicht anmelden, auch nicht durch Zurücksetzen des Passworts."$json$::jsonb),
+  ('de', 'twoFactor.confirm', $json$"Bestätigen und einschalten"$json$::jsonb),
+  ('de', 'twoFactor.enabled', $json$"Zwei-Faktor-Authentifizierung ist eingeschaltet."$json$::jsonb),
+  ('de', 'twoFactor.remove', $json$"Ausschalten"$json$::jsonb),
+  ('de', 'twoFactor.removeHint', $json$"Gib den Code ein, den die App jetzt anzeigt, um sie auszuschalten."$json$::jsonb),
+  ('de', 'twoFactor.removed', $json$"Zwei-Faktor-Authentifizierung ist ausgeschaltet."$json$::jsonb)
+on conflict (locale, key) do update set value = excluded.value;
