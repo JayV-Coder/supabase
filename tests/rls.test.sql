@@ -2,7 +2,7 @@
 -- conteúdo global; a escrita atrasada não passa por cima da recente.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(30);
+select plan(35);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-00000000000a', 'a@teste.local'),
@@ -97,6 +97,12 @@ select throws_ok($$update public.profiles set username = 'devd' where user_id = 
 select results_eq($$select public.username_available('devd'), public.username_available('carla'), public.username_available('nova-ana'), public.username_available('a')$$,
   $$values (false, true, true, false)$$, 'disponibilidade: de outro não, o próprio sim, livre sim, curto não');
 select lives_ok($$update public.profiles set username = 'nova-ana' where user_id = auth.uid()$$, 'o dono troca o próprio nome de usuário');
+-- Depois de gravado, o nome de usuário não muda mais.
+select lives_ok($$update public.profiles set username = 'ana-fixa', username_set_at = now() where user_id = auth.uid()$$, 'a primeira gravação fixa o nome');
+select throws_ok($$update public.profiles set username = 'outra-ana' where user_id = auth.uid()$$, 'P0001', 'profile.username.locked', 'nome fixado não muda');
+select throws_ok($$update public.profiles set username = 'outra-ana', username_set_at = null where user_id = auth.uid()$$, 'P0001', 'profile.username.locked', 'apagar a marca não destrava');
+select lives_ok($$update public.profiles set display_name = 'Ana', username = 'ana-fixa', username_set_at = now() where user_id = auth.uid()$$, 'o resto do perfil continua mudando');
+select is((select username || ':' || (username_set_at is not null) from public.profiles where user_id = auth.uid()), 'ana-fixa:true', 'o nome e a marca ficam');
 reset role;
 set local role anon;
 select throws_ok($$select public.username_available('x')$$, '42501', null, 'sem sessão não consulta nomes');

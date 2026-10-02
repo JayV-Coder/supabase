@@ -2,7 +2,7 @@
 -- privacidade dos perfis e a associação de projetos pelos remotes.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(33);
+select plan(34);
 
 insert into auth.users (id, email, email_confirmed_at, raw_user_meta_data) values
   ('00000000-0000-0000-0000-0000000000a1', 'owner@teste.local', now(), '{"user_name":"dona"}'),
@@ -23,6 +23,8 @@ grant all on ids to authenticated;
 select pg_temp.as_user('00000000-0000-0000-0000-0000000000a1');
 insert into ids select 'org', public.create_organization('Acme', 'acme');
 select is((select role from public.organization_members where user_id = auth.uid()), 'owner', 'quem cria é owner');
+select results_eq($$select deny, local_only from public.organization_llm_policies where org_id = (select id from ids where name = 'org') and repository_id is null$$,
+  $$values (array['.env', '*.pem', '.ssh/**', 'secrets/**', '*.key', '*.secret'], array['internal/**', 'private/**'])$$, 'a organização nasce com a política de privacidade comum');
 select throws_ok($$select public.create_organization('Outra', 'acme')$$, 'P0001', 'org.slugTaken', 'slug repetido');
 select throws_ok($$insert into public.organizations (name, slug) values ('x', 'xyz')$$, '42501', null, 'ninguém escreve direto');
 
