@@ -24,6 +24,7 @@ jobs:
     name: Migrations
     runs-on: ubuntu-latest
     env:
+      SUPABASE_CLI_VERSION: 2.119.0
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
     steps:
@@ -39,10 +40,13 @@ jobs:
             exit 1
           fi
 
-      - uses: supabase/setup-cli@v1
+      # Baixa a CLI direto do release, sem ação de terceiros.
+      - name: Instalar a Supabase CLI
         if: env.SUPABASE_ACCESS_TOKEN != ''
-        with:
-          version: 2.119.0
+        run: |
+          curl -fsSL "https://github.com/supabase/cli/releases/download/v${SUPABASE_CLI_VERSION}/supabase_linux_amd64.tar.gz" \
+            | sudo tar -xz -C /usr/local/bin supabase supabase-go
+          supabase --version
 
       - name: Simular o deploy
         if: env.SUPABASE_ACCESS_TOKEN != ''
