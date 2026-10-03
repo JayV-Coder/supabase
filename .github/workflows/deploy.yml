@@ -1,0 +1,61 @@
+# Aplica as migrations e publica as Edge Functions no projeto Supabase a cada
+# push no main (inclusive o merge de um PR). Também roda pela aba Actions.
+#
+# Precisa de dois segredos neste repositório (Settings → Secrets and variables
+# → Actions):
+#   SUPABASE_ACCESS_TOKEN  token pessoal da Supabase (supabase.com/dashboard/account/tokens)
+#   SUPABASE_DB_PASSWORD   senha do Postgres do projeto (Project Settings → Database)
+#
+# O projeto sai do `project_id` do `config.toml`. Este repositório é a própria
+# pasta `supabase/` da CLI, por isso o checkout vai para `supabase/` e a CLI
+# roda um nível acima.
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "migrations/**"
+      - "functions/**"
+      - "config.toml"
+      - ".github/workflows/deploy.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Um deploy de cada vez e na ordem dos pushes: cancelar no meio deixaria uma
+# migration pela metade.
+concurrency:
+  group: supabase-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Migrations e functions
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_CLI_VERSION: 2.119.0
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: supabase
+
+      # Baixa a CLI direto do release, sem ação de terceiros.
+      - name: Instalar a Supabase CLI
+        run: |
+          curl -fsSL "https://github.com/supabase/cli/releases/download/v${SUPABASE_CLI_VERSION}/supabase_linux_amd64.tar.gz" \
+            | sudo tar -xz -C /usr/local/bin supabase supabase-go
+          supabase --version
+
+      - name: Vincular o projeto
+        run: supabase link --project-ref "$(sed -n 's/^project_id *= *"\(.*\)"/\1/p' supabase/config.toml)"
+
+      # Primeiro o banco: as functions novas podem depender do esquema novo.
+      - name: Aplicar migrations
+        run: supabase db push --linked --yes
+
+      - name: Publicar Edge Functions
+        run: supabase functions deploy --use-api --yes

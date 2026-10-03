@@ -1,0 +1,55 @@
+# Confere as migrations de um PR antes do merge, para o deploy do main não
+# quebrar depois:
+#   - dois arquivos com o mesmo carimbo de data (threads em paralelo) são
+#     rejeitados pelo `db push`;
+#   - `db push --dry-run` contra o projeto mostra o que o merge vai aplicar e
+#     falha se uma migration nova ficou com data anterior à última já aplicada.
+#
+# Usa os mesmos segredos do deploy; sem eles (PR de fork), só a primeira
+# conferência roda.
+name: Conferir migrations
+
+on:
+  pull_request:
+    paths:
+      - "migrations/**"
+      - "config.toml"
+      - ".github/workflows/**"
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Migrations
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_CLI_VERSION: 2.119.0
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: supabase
+
+      - name: Carimbos de data únicos
+        run: |
+          dup=$(ls supabase/migrations | cut -d_ -f1 | sort | uniq -d)
+          if [ -n "$dup" ]; then
+            echo "::error::Migrations com o mesmo carimbo de data: $dup"
+            exit 1
+          fi
+
+      # Baixa a CLI direto do release, sem ação de terceiros.
+      - name: Instalar a Supabase CLI
+        if: env.SUPABASE_ACCESS_TOKEN != ''
+        run: |
+          curl -fsSL "https://github.com/supabase/cli/releases/download/v${SUPABASE_CLI_VERSION}/supabase_linux_amd64.tar.gz" \
+            | sudo tar -xz -C /usr/local/bin supabase supabase-go
+          supabase --version
+
+      - name: Simular o deploy
+        if: env.SUPABASE_ACCESS_TOKEN != ''
+        run: |
+          supabase link --project-ref "$(sed -n 's/^project_id *= *"\(.*\)"/\1/p' supabase/config.toml)"
+          supabase db push --linked --dry-run
