@@ -1,3 +1,5 @@
+-- Renomeada de 20261004150000_site.sql: o horário já era da
+-- 20261004150000_feature_system.sql e o deploy recusou a versão repetida.
 -- Site v1.0.0: o site do JayV (repositório JayV-Coder/site) passou a ser
 -- Next.js e lê as traduções desta tabela, como o app. As chaves dele começam
 -- por `site.`; as que ele divide com o app (`auth.*`, `admin.*`, `feature.*`
