@@ -1,4 +1,4 @@
--- v0.51.3: o projeto ligado a mais de uma organização roda sob a política
+-- v0.51.4: o projeto ligado a mais de uma organização roda sob a política
 -- mais rígida de todas elas.
 --
 -- Antes, `my_project_policies` olhava só a organização do projeto ou, fora
@@ -86,7 +86,7 @@ $$;
 -- aceitar o conjunto.
 delete from public.jev_questions where question_set = 'verification';
 
--- Os textos da v0.51.3, nos dez idiomas.
+-- Os textos da v0.51.4, nos dez idiomas.
 insert into public.translations (locale, key, value) values
   ('pt-BR', 'turn.interrupted', $json$"O app fechou com este pedido no ar, e ele parou aí. Nada foi retomado sozinho: reenvie se quiser continuar."$json$::jsonb),
   ('pt-BR', 'whatsNew.item.indexAfterBuild.title', $json$"A busca enxerga o que o agente acabou de criar"$json$::jsonb),

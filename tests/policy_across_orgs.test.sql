@@ -1,4 +1,4 @@
--- v0.51.3: o projeto com repositórios de duas organizações roda sob a
+-- v0.51.4: o projeto com repositórios de duas organizações roda sob a
 -- política mais rígida das duas, e não só sob a do primeiro repositório.
 begin;
 create extension if not exists pgtap with schema extensions;
