@@ -5,3 +5,12 @@ project_id = "exvsozyemolrjbjetqww"
 
 [functions.jev]
 verify_jwt = false
+
+# O pagamento confere o token sozinho, como o `jev`, e atende sem token a
+# volta do navegador (`?return=`), que só redireciona para o app.
+[functions.billing]
+verify_jwt = false
+
+# O Stripe não manda JWT: a função confere a assinatura do evento.
+[functions.stripe-webhook]
+verify_jwt = false

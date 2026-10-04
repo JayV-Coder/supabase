@@ -9,7 +9,9 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 const SETS = ["entry", "routing", "verification", "asking"];
 const TYPESAFE_URL = `${Deno.env.get("TYPESAFE_BASE_URL") ?? "https://api.typesafe.ai"}/v1/systemone`;
 const MODEL = Deno.env.get("TYPESAFE_DEFAULT_MODEL") ?? "jev-latest";
-const DAILY_LIMIT = Number(Deno.env.get("JEV_DAILY_LIMIT") ?? 500);
+// Um valor que não é número ("500 ", "abc") não pode desligar o limite.
+const configuredLimit = Number.parseInt(Deno.env.get("JEV_DAILY_LIMIT") ?? "", 10);
+const DAILY_LIMIT = Number.isFinite(configuredLimit) && configuredLimit > 0 ? configuredLimit : 500;
 
 function reply(status: number, body: unknown, headers: HeadersInit = {}): Response {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", ...headers } });
@@ -53,7 +55,9 @@ Deno.serve(async (request) => {
   const include = Array.isArray(input.include) ? input.include.map(String) : null;
 
   const { data: used, error: counting } = await supabase.rpc("jev_count_call");
-  if (counting) return refuse(500, "usage", `não foi possível contar o uso: ${counting.message}`);
+  // Sem o segundo fator (PT403) a recusa é definitiva: 403, e o app não
+  // tenta de novo como faria num 500.
+  if (counting) return refuse(counting.code === "PT403" ? 403 : 500, counting.code === "PT403" ? "second_factor" : "usage", `não foi possível contar o uso: ${counting.message}`);
   // As chamadas do dia vão em toda resposta, inclusive na recusa: é delas que
   // o app tira a cota diária das estatísticas.
   const calls = { "X-Jev-Calls-Used": String(used), "X-Jev-Daily-Limit": String(DAILY_LIMIT) };
@@ -79,10 +83,16 @@ Deno.serve(async (request) => {
       body: JSON.stringify({ model: MODEL, state: input.state, questions }),
     });
   } catch (error) {
+    await supabase.rpc("jev_refund_call");
     return refuse(502, "upstream", `a TypeSafe não respondeu: ${error}`);
   }
   // A avaliação volta como veio, e o status também: 429, 529 e 5xx são o
-  // sinal para o Rust tentar de novo.
+  // sinal para o Rust tentar de novo. Essa chamada não valeu, então não conta
+  // no limite do dia — senão cada nova tentativa gastaria a cota duas vezes.
+  if (upstream.status === 429 || upstream.status >= 500) {
+    const { error: refunding } = await supabase.rpc("jev_refund_call");
+    if (refunding) console.error("jev: não devolveu a chamada", refunding.message);
+  }
   const headers: Record<string, string> = { ...calls };
   const retryAfter = upstream.headers.get("Retry-After");
   if (retryAfter) headers["Retry-After"] = retryAfter;
