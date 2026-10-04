@@ -1,0 +1,25 @@
+-- O agente não fica mais somente leitura depois do planejamento (v0.52.4):
+-- o pedido no modo Desenvolvimento não retoma a sessão aberta no
+-- Planejamento. Mudança só no app: aqui, o item da janela "Novidades".
+insert into public.translations (locale, key, value) values
+  ('pt-BR', 'whatsNew.item.planSessionInBuild.title', $json$"O agente não fica mais somente leitura depois do planejamento"$json$::jsonb),
+  ('pt-BR', 'whatsNew.item.planSessionInBuild.detail', $json$"Quando o chat passava do Planejamento para o Desenvolvimento, o agente retomava a sessão aberta no Planejamento, ficava com a permissão de só ler e respondia que a sessão permanecia somente leitura. Agora o pedido no Desenvolvimento abre a própria sessão do agente, e os pedidos seguintes no mesmo modo a retomam como antes."$json$::jsonb),
+  ('en', 'whatsNew.item.planSessionInBuild.title', $json$"The agent no longer stays read-only after planning"$json$::jsonb),
+  ('en', 'whatsNew.item.planSessionInBuild.detail', $json$"When a chat went from Planning to Development, the agent picked up the session it had opened in Planning, kept its read-only permission and answered that the session was still read-only. A request in Development now opens its own agent session, and the next requests in the same mode pick it up as before."$json$::jsonb),
+  ('es', 'whatsNew.item.planSessionInBuild.title', $json$"El agente ya no se queda en solo lectura después de planificar"$json$::jsonb),
+  ('es', 'whatsNew.item.planSessionInBuild.detail', $json$"Cuando el chat pasaba de Planificación a Desarrollo, el agente retomaba la sesión abierta en Planificación, se quedaba con el permiso de solo leer y respondía que la sesión seguía en solo lectura. Ahora la petición en Desarrollo abre su propia sesión del agente, y las siguientes en el mismo modo la retoman como antes."$json$::jsonb),
+  ('zh-CN', 'whatsNew.item.planSessionInBuild.title', $json$"规划之后，代理不再停留在只读状态"$json$::jsonb),
+  ('zh-CN', 'whatsNew.item.planSessionInBuild.detail', $json$"当聊天从规划切换到开发时，代理会恢复在规划中打开的会话，保留只读权限，并回答会话仍是只读的。现在开发模式下的请求会打开自己的代理会话，同一模式下的后续请求照常恢复它。"$json$::jsonb),
+  ('hi', 'whatsNew.item.planSessionInBuild.title', $json$"योजना के बाद एजेंट अब केवल-पढ़ने में नहीं रहता"$json$::jsonb),
+  ('hi', 'whatsNew.item.planSessionInBuild.detail', $json$"जब चैट योजना से विकास में जाती थी, तो एजेंट योजना में खोला गया सत्र फिर से शुरू करता था, केवल पढ़ने की अनुमति रखता था और कहता था कि सत्र अब भी केवल-पढ़ने वाला है। अब विकास मोड का अनुरोध एजेंट का अपना सत्र खोलता है, और उसी मोड के अगले अनुरोध पहले की तरह उसे जारी रखते हैं।"$json$::jsonb),
+  ('ar', 'whatsNew.item.planSessionInBuild.title', $json$"لم يعد الوكيل يبقى للقراءة فقط بعد التخطيط"$json$::jsonb),
+  ('ar', 'whatsNew.item.planSessionInBuild.detail', $json$"عندما كانت المحادثة تنتقل من التخطيط إلى التطوير، كان الوكيل يستأنف الجلسة التي فتحها في التخطيط، فيحتفظ بإذن القراءة فقط ويجيب بأن الجلسة ما زالت للقراءة فقط. الآن يفتح الطلب في وضع التطوير جلسة خاصة به للوكيل، وتستأنفها الطلبات التالية في الوضع نفسه كما من قبل."$json$::jsonb),
+  ('fr', 'whatsNew.item.planSessionInBuild.title', $json$"L'agent ne reste plus en lecture seule après la planification"$json$::jsonb),
+  ('fr', 'whatsNew.item.planSessionInBuild.detail', $json$"Quand une conversation passait de Planification à Développement, l'agent reprenait la session ouverte en Planification, gardait sa permission de lecture seule et répondait que la session restait en lecture seule. Une demande en Développement ouvre maintenant sa propre session de l'agent, et les demandes suivantes dans le même mode la reprennent comme avant."$json$::jsonb),
+  ('ru', 'whatsNew.item.planSessionInBuild.title', $json$"После планирования агент больше не остаётся только для чтения"$json$::jsonb),
+  ('ru', 'whatsNew.item.planSessionInBuild.detail', $json$"Когда чат переходил из режима «Планирование» в «Разработку», агент продолжал сессию, открытую при планировании, сохранял право только на чтение и отвечал, что сессия по-прежнему только для чтения. Теперь запрос в режиме «Разработка» открывает собственную сессию агента, а следующие запросы в том же режиме продолжают её, как раньше."$json$::jsonb),
+  ('ja', 'whatsNew.item.planSessionInBuild.title', $json$"計画のあとでエージェントが読み取り専用のままにならなくなりました"$json$::jsonb),
+  ('ja', 'whatsNew.item.planSessionInBuild.detail', $json$"チャットを計画から開発に切り替えると、エージェントは計画で開いたセッションを再開し、読み取り専用の権限のまま「セッションは読み取り専用のままです」と答えていました。開発モードのリクエストは専用のエージェントセッションを開くようになり、同じモードの次のリクエストはこれまでどおりそれを再開します。"$json$::jsonb),
+  ('de', 'whatsNew.item.planSessionInBuild.title', $json$"Der Agent bleibt nach der Planung nicht mehr schreibgeschützt"$json$::jsonb),
+  ('de', 'whatsNew.item.planSessionInBuild.detail', $json$"Wechselte ein Chat von Planung zu Entwicklung, setzte der Agent die in der Planung geöffnete Sitzung fort, behielt die Nur-Lesen-Berechtigung und antwortete, die Sitzung sei weiterhin schreibgeschützt. Eine Anfrage in der Entwicklung öffnet jetzt ihre eigene Agentensitzung, und die nächsten Anfragen im selben Modus setzen sie wie bisher fort."$json$::jsonb)
+on conflict (locale, key) do update set value = excluded.value;
