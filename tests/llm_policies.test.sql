@@ -77,7 +77,7 @@ insert into public.projects (id, name, created_at, repo_keys) values
   ('p-solto', 'Solto', '2026-10-02T12:00:00Z', '["github.com/membro/solto"]');
 select is(public.project_repository('p-api'), (select id from ids where name = 'api'), 'o repositório que associa o projeto');
 select is((select policy from public.my_project_policies() where project_id = 'p-api'),
-  '{"agents": ["codex"], "blocked_models": ["claude/opus", "codex/o3"], "deny": ["secrets/**", "*.sql"], "local_only": ["internal/**"],
+  '{"agents": ["codex"], "blocked_models": ["claude/opus", "codex/o3"], "blocked_mechanisms": [], "deny": ["secrets/**", "*.sql"], "local_only": ["internal/**"],
     "safe_agents": true, "redact_secrets": false, "min_read": "ask", "min_write": "deny", "min_shell": "ask"}'::jsonb,
   'organização e repositório juntos, pela mais rígida');
 select is((select policy->'agents' from public.my_project_policies() where project_id = 'p-web'), '["claude", "codex", "copilot"]'::jsonb, 'sem política própria, vale a da organização');
