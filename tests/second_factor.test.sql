@@ -8,10 +8,10 @@ select plan(13);
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-00000000000a', 'a@teste.local'),
   ('00000000-0000-0000-0000-00000000000b', 'b@teste.local');
-insert into auth.mfa_factors (user_id, status) values
-  ('00000000-0000-0000-0000-00000000000a', 'verified'),
+insert into auth.mfa_factors (id, user_id, factor_type, status, created_at, updated_at) values
+  (gen_random_uuid(), '00000000-0000-0000-0000-00000000000a', 'totp', 'verified', now(), now()),
   -- Cadastro pela metade não conta.
-  ('00000000-0000-0000-0000-00000000000b', 'unverified');
+  (gen_random_uuid(), '00000000-0000-0000-0000-00000000000b', 'totp', 'unverified', now(), now());
 
 create function pg_temp.as_user(id uuid, aal text) returns void language sql as $$
   select set_config('role', 'authenticated', true),

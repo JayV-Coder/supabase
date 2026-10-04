@@ -5,7 +5,8 @@ create extension if not exists pgtap with schema extensions;
 select plan(7);
 
 insert into auth.users (id, email) values ('00000000-0000-0000-0000-0000000000ad', 'admin@teste.local');
-insert into auth.mfa_factors (user_id, status) values ('00000000-0000-0000-0000-0000000000ad', 'verified');
+insert into auth.mfa_factors (id, user_id, factor_type, status, created_at, updated_at) values
+  (gen_random_uuid(), '00000000-0000-0000-0000-0000000000ad', 'totp', 'verified', now(), now());
 insert into public.admins (user_id) values ('00000000-0000-0000-0000-0000000000ad');
 
 create function pg_temp.as_user(id uuid, aal text) returns void language sql as $$

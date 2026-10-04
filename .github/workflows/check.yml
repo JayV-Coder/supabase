@@ -3,7 +3,9 @@
 #   - dois arquivos com o mesmo carimbo de data (threads em paralelo) são
 #     rejeitados pelo `db push`;
 #   - `db push --dry-run` contra o projeto mostra o que o merge vai aplicar e
-#     falha se uma migration nova ficou com data anterior à última já aplicada.
+#     falha se uma migration nova ficou com data anterior à última já aplicada;
+#   - os testes pgTAP de `tests/` rodam num Postgres local com todas as
+#     migrations aplicadas do zero.
 #
 # Usa os mesmos segredos do deploy; sem eles (PR de fork), só a primeira
 # conferência roda.
@@ -13,6 +15,7 @@ on:
   pull_request:
     paths:
       - "migrations/**"
+      - "tests/**"
       - "config.toml"
       - ".github/workflows/**"
 
@@ -53,3 +56,26 @@ jobs:
         run: |
           supabase link --project-ref "$(sed -n 's/^project_id *= *"\(.*\)"/\1/p' supabase/config.toml)"
           supabase db push --linked --dry-run
+
+  tests:
+    name: Testes pgTAP
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_CLI_VERSION: 2.119.0
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: supabase
+
+      - name: Instalar a Supabase CLI
+        run: |
+          curl -fsSL "https://github.com/supabase/cli/releases/download/v${SUPABASE_CLI_VERSION}/supabase_linux_amd64.tar.gz" \
+            | sudo tar -xz -C /usr/local/bin supabase supabase-go
+          supabase --version
+
+      # Só o banco: as migrations sobem do zero, como num projeto novo.
+      - name: Subir o banco local
+        run: supabase db start
+
+      - name: Rodar os testes
+        run: supabase test db
