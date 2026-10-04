@@ -31,9 +31,13 @@ select throws_ok($$ select public.admin_set_admin('00000000-0000-0000-0000-00000
 select throws_ok($$ select public.admin_delete_user('00000000-0000-0000-0000-0000000000a1') $$, 'P0001', 'site.users.error.self', 'nem se exclui');
 
 select lives_ok($$ select public.admin_set_banned('00000000-0000-0000-0000-0000000000b2', true) $$, 'bloqueia uma conta');
+reset role;
 select ok((select banned_until > now() from auth.users where id = '00000000-0000-0000-0000-0000000000b2'), 'o Supabase Auth passa a recusar a conta');
+select pg_temp.as_user('00000000-0000-0000-0000-0000000000a1');
 select lives_ok($$ select public.admin_set_banned('00000000-0000-0000-0000-0000000000b2', false) $$, 'e desbloqueia');
+reset role;
 select ok((select banned_until is null from auth.users where id = '00000000-0000-0000-0000-0000000000b2'), 'a conta volta a entrar');
+select pg_temp.as_user('00000000-0000-0000-0000-0000000000a1');
 
 select lives_ok($$ select public.admin_set_admin('00000000-0000-0000-0000-0000000000b2', true) $$, 'dá o papel de admin');
 select throws_ok($$ select public.admin_set_banned('00000000-0000-0000-0000-0000000000b2', true) $$, 'P0001', 'site.users.error.isAdmin', 'admin não é bloqueado sem antes perder o papel');
