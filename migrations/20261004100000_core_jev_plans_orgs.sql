@@ -1,4 +1,4 @@
--- Jev, planos e organizações do núcleo em crates próprios (v0.51.4). Mudança
+-- Jev, planos e organizações do núcleo em crates próprios (v0.51.5). Mudança
 -- interna do app, sem diferença para quem usa: só o item da janela
 -- "Novidades".
 insert into public.translations (locale, key, value) values
