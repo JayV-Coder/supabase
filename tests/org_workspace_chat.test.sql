@@ -43,7 +43,7 @@ select public.set_llm_policy((select id from ids where name = 'org'), (select id
 
 select pg_temp.as_user('00000000-0000-0000-0000-0000000000c2');
 select is((select policy from public.my_project_policies() where project_id = 'p-org'),
-  '{"agents": ["codex"], "blocked_models": ["codex/o3"], "deny": ["secrets/**", "*.sql"], "local_only": ["internal/**"],
+  '{"agents": ["codex"], "blocked_models": ["codex/o3"], "blocked_mechanisms": [], "deny": ["secrets/**", "*.sql"], "local_only": ["internal/**"],
     "safe_agents": true, "redact_secrets": false, "min_read": "ask", "min_write": "ask", "min_shell": "deny"}'::jsonb,
   'a organização e todos os repositórios juntos, pela mais rígida');
 select is((select org_slug from public.my_project_policies() where project_id = 'p-org'), 'acme', 'a política diz de que organização é');
