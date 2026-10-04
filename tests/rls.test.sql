@@ -7,9 +7,9 @@ select plan(35);
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-00000000000a', 'a@teste.local'),
   ('00000000-0000-0000-0000-00000000000b', 'b@teste.local');
-insert into public.locales (id, name) values ('pt-BR', 'Português');
-insert into public.translations (locale, key, value) values ('pt-BR', 'app.title', '"JayV"');
-insert into public.jev_questions (question_set, id, body) values ('entry', 'goal_is_clear', '{}');
+insert into public.locales (id, name) values ('pt-BR', 'Português') on conflict (id) do nothing;
+insert into public.translations (locale, key, value) values ('pt-BR', 'app.title', '"JayV"') on conflict do nothing;
+insert into public.jev_questions (question_set, id, body) values ('entry', 'goal_is_clear', '{}') on conflict do nothing;
 
 create function pg_temp.as_user(id uuid) returns void language sql as $$
   select set_config('role', 'authenticated', true),
