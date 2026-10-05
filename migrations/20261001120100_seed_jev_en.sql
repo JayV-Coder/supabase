@@ -21,6 +21,7 @@ on conflict (question_set, id) do update set body = excluded.body, position = ex
 insert into public.jev_parameters (key, value) values
   ('block_margin', $json$0.2$json$::jsonb),
   ('continuation_minutes', $json$30.0$json$::jsonb),
+  ('deadline_seconds', $json$8.0$json$::jsonb),
   ('noul_line', $json$0.5$json$::jsonb),
   ('scope_demand', $json$[0.35,0.55,0.7]$json$::jsonb),
   ('scope_levels', $json$["small change","feature","whole system"]$json$::jsonb),
