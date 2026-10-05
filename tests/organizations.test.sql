@@ -2,7 +2,7 @@
 -- privacidade dos perfis e a associação de projetos pelos remotes.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(34);
+select plan(35);
 
 insert into auth.users (id, email, email_confirmed_at, raw_user_meta_data) values
   ('00000000-0000-0000-0000-0000000000a1', 'owner@teste.local', now(), '{"user_name":"dona"}'),
@@ -63,12 +63,15 @@ select pg_temp.as_user('00000000-0000-0000-0000-0000000000a5');
 select throws_ok($$select public.accept_invite((select id from ids where name = 'inv_novo'))$$, 'P0001', 'org.inviteExpired', 'convite vencido');
 select is((select count(*)::int from public.my_invites()), 0, 'o vencido some da caixa');
 
--- Repositórios.
+-- Repositórios: desde a migração org_git_providers, só o owner cadastra.
 select pg_temp.as_user('00000000-0000-0000-0000-0000000000a2');
-select lives_ok($$select public.add_repository((select id from ids where name = 'org'), 'github', 'Acme/API.git')$$, 'maintainer cadastra repositório');
+select throws_ok($$select public.add_repository((select id from ids where name = 'org'), 'github', 'acme/api')$$, 'P0001', 'org.forbidden', 'maintainer não cadastra repositório');
+select pg_temp.as_user('00000000-0000-0000-0000-0000000000a1');
+select lives_ok($$select public.add_repository((select id from ids where name = 'org'), 'github', 'Acme/API.git')$$, 'owner cadastra repositório');
 select is((select repo_key from public.organization_repositories), 'github.com/acme/api', 'a chave é normalizada');
 select throws_ok($$select public.add_repository((select id from ids where name = 'org'), 'github', 'acme/api')$$, 'P0001', 'org.repoTaken', 'repositório repetido');
 select throws_ok($$select public.add_repository((select id from ids where name = 'org'), 'github', 'só-um')$$, 'P0001', 'org.repoInvalid', 'caminho sem dono');
+select pg_temp.as_user('00000000-0000-0000-0000-0000000000a2');
 
 -- Papéis e o último owner.
 select throws_ok($$select public.set_member_role((select id from ids where name = 'org'), '00000000-0000-0000-0000-0000000000a3', 'maintainer')$$, 'P0001', 'org.forbidden', 'maintainer não troca papel');
