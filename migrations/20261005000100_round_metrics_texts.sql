@@ -1,0 +1,26 @@
+-- v0.55.0: o motivo de cada sessão nova de agente (primeiro pedido, outro
+-- modelo, outro modo, teto de pedidos, sessão perdida) entra nas marcas do Jev.
+-- Só textos.
+
+insert into public.translations (locale, key, value) values
+  ('pt-BR', 'whatsNew.item.roundMetrics.title', $json$"O JayV conta por que o agente recomeça do zero"$json$::jsonb),
+  ('pt-BR', 'whatsNew.item.roundMetrics.detail', $json$"Toda vez que um agente abre uma sessão nova em vez de retomar a do chat, o JayV agora registra o motivo: primeiro pedido, outro modelo, outro modo, o teto de pedidos ou uma sessão que o agente já não tinha. Junto com os vereditos da portaria e o custo por chat, essa é a linha de base das próximas versões, que miram menos voltas até o pedido ficar pronto."$json$::jsonb),
+  ('en', 'whatsNew.item.roundMetrics.title', $json$"JayV counts why an agent starts over"$json$::jsonb),
+  ('en', 'whatsNew.item.roundMetrics.detail', $json$"Every time an agent opens a fresh session instead of resuming the chat's, JayV now records why: first request, another model, another mode, the turn limit, or a session the agent no longer had. Together with the gate verdicts and the cost per chat, this is the baseline for the next releases, which aim at fewer rounds until a request is done."$json$::jsonb),
+  ('es', 'whatsNew.item.roundMetrics.title', $json$"JayV cuenta por qué el agente empieza de cero"$json$::jsonb),
+  ('es', 'whatsNew.item.roundMetrics.detail', $json$"Cada vez que un agente abre una sesión nueva en lugar de retomar la del chat, JayV ahora registra el motivo: primera solicitud, otro modelo, otro modo, el límite de solicitudes o una sesión que el agente ya no tenía. Junto con los veredictos de la portería y el costo por chat, es la línea de base de las próximas versiones, que buscan menos vueltas hasta que la solicitud esté lista."$json$::jsonb),
+  ('zh-CN', 'whatsNew.item.roundMetrics.title', $json$"JayV 会记录智能体为何从头开始"$json$::jsonb),
+  ('zh-CN', 'whatsNew.item.roundMetrics.detail', $json$"每当智能体开启新会话而不是恢复聊天原有的会话时，JayV 现在都会记录原因：首次请求、换了模型、换了模式、达到请求上限，或智能体已找不到原会话。连同门禁的判定和每个聊天的成本，这就是后续版本的基线，目标是让请求更少来回就完成。"$json$::jsonb),
+  ('hi', 'whatsNew.item.roundMetrics.title', $json$"JayV गिनता है कि एजेंट शुरू से क्यों शुरू करता है"$json$::jsonb),
+  ('hi', 'whatsNew.item.roundMetrics.detail', $json$"जब भी कोई एजेंट चैट का सत्र फिर से शुरू करने के बजाय नया सत्र खोलता है, JayV अब कारण दर्ज करता है: पहला अनुरोध, दूसरा मॉडल, दूसरा मोड, अनुरोधों की सीमा, या ऐसा सत्र जो एजेंट के पास अब नहीं था। गेट के फ़ैसलों और प्रति चैट लागत के साथ, यह अगले संस्करणों की आधार रेखा है, जिनका लक्ष्य अनुरोध पूरा होने तक कम चक्कर है।"$json$::jsonb),
+  ('ar', 'whatsNew.item.roundMetrics.title', $json$"يسجّل JayV سبب بدء الوكيل من جديد"$json$::jsonb),
+  ('ar', 'whatsNew.item.roundMetrics.detail', $json$"في كل مرة يفتح فيها الوكيل جلسة جديدة بدل استئناف جلسة المحادثة، يسجّل JayV الآن السبب: أول طلب، أو نموذج آخر، أو وضع آخر، أو حد الطلبات، أو جلسة لم تعد لدى الوكيل. ومع أحكام البوابة وتكلفة كل محادثة، هذا هو خط الأساس للإصدارات القادمة التي تهدف إلى جولات أقل حتى يكتمل الطلب."$json$::jsonb),
+  ('fr', 'whatsNew.item.roundMetrics.title', $json$"JayV compte pourquoi l’agent repart de zéro"$json$::jsonb),
+  ('fr', 'whatsNew.item.roundMetrics.detail', $json$"Chaque fois qu’un agent ouvre une nouvelle session au lieu de reprendre celle du chat, JayV en enregistre désormais la raison : première demande, autre modèle, autre mode, limite de demandes ou session que l’agent n’avait plus. Avec les verdicts de la loge et le coût par chat, c’est la base de référence des prochaines versions, qui visent moins d’allers-retours jusqu’à ce que la demande soit terminée."$json$::jsonb),
+  ('ru', 'whatsNew.item.roundMetrics.title', $json$"JayV считает, почему агент начинает заново"$json$::jsonb),
+  ('ru', 'whatsNew.item.roundMetrics.detail', $json$"Каждый раз, когда агент открывает новую сессию вместо продолжения сессии чата, JayV теперь записывает причину: первый запрос, другая модель, другой режим, лимит запросов или сессия, которой у агента уже не было. Вместе с вердиктами проходной и стоимостью чата это исходная точка для следующих версий, цель которых — меньше кругов до готового результата."$json$::jsonb),
+  ('ja', 'whatsNew.item.roundMetrics.title', $json$"エージェントが最初からやり直す理由を JayV が記録します"$json$::jsonb),
+  ('ja', 'whatsNew.item.roundMetrics.detail', $json$"エージェントがチャットのセッションを再開せず新しいセッションを開くたびに、JayV はその理由を記録するようになりました。最初のリクエスト、別のモデル、別のモード、リクエスト上限、またはエージェントがもう持っていないセッションです。ゲートの判定やチャットごとのコストと合わせて、これが次のリリースの基準になります。目標は、リクエストが完了するまでのやり取りを減らすことです。"$json$::jsonb),
+  ('de', 'whatsNew.item.roundMetrics.title', $json$"JayV zählt, warum ein Agent von vorn beginnt"$json$::jsonb),
+  ('de', 'whatsNew.item.roundMetrics.detail', $json$"Jedes Mal, wenn ein Agent eine neue Sitzung öffnet, statt die des Chats fortzusetzen, hält JayV jetzt den Grund fest: erste Anfrage, anderes Modell, anderer Modus, das Anfragelimit oder eine Sitzung, die der Agent nicht mehr hatte. Zusammen mit den Urteilen der Pforte und den Kosten pro Chat ist das die Ausgangsbasis für die nächsten Versionen, die weniger Runden bis zur fertigen Anfrage anstreben."$json$::jsonb)
+on conflict (locale, key) do update set value = excluded.value;
