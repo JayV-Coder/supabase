@@ -14,3 +14,8 @@ verify_jwt = false
 # O Stripe não manda JWT: a função confere a assinatura do evento.
 [functions.stripe-webhook]
 verify_jwt = false
+
+# Os releases são públicos: o site, o atualizador do app e quem baixa um
+# instalador chegam sem sessão. A função só lê o repositório de releases.
+[functions.releases]
+verify_jwt = false
