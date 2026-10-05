@@ -1,4 +1,4 @@
--- Site 1.3.2: a demonstração e o "como funciona" deixam de prometer "saída
+-- Site 1.4.1: a demonstração e o "como funciona" deixam de prometer "saída
 -- verificada". A portaria de saída confere as regras da casa; o que o JayV
 -- não rodou aparece como não verificado, e o JayV não garante que a mudança
 -- está correta. As chaves antigas mudam só de texto (sem parâmetro novo), e

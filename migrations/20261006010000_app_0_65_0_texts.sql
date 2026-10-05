@@ -1,4 +1,4 @@
--- v0.64.0: estados honestos. A resposta que a portaria de saída não segurou
+-- v0.65.0: estados honestos. A resposta que a portaria de saída não segurou
 -- deixa de ficar verde e aparece como não verificada (o JayV não roda teste,
 -- build nem lint), e o botão "O que foi conferido" separa o que o JayV
 -- observou, o que um modelo disse e o que ficou sem verificação. Inclui a
