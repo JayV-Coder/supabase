@@ -19,8 +19,17 @@ import {
   assetSource, buildManual, type GithubRelease, manualIds, mergeChangelog, newestFirst, publicRelease, rewriteUpdater, routeOf,
 } from "./lib.ts";
 
-const REPOSITORY = Deno.env.get("RELEASES_REPOSITORY") ?? "JayV-Coder/jayv-coder-releases";
-const TOKEN = Deno.env.get("RELEASES_GITHUB_TOKEN") ?? "";
+const DEFAULT_REPOSITORY = "JayV-Coder/jayv-coder-releases";
+// `dono/repositório`. Um valor sem o dono (só "jayv-coder-releases") ou
+// malformado não pode derrubar a função: vale o padrão, com aviso no log.
+const configuredRepository = (Deno.env.get("RELEASES_REPOSITORY") ?? "").trim();
+const REPOSITORY = /^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/.test(configuredRepository) ? configuredRepository : DEFAULT_REPOSITORY;
+if (configuredRepository && REPOSITORY !== configuredRepository) {
+  console.error(`releases: RELEASES_REPOSITORY "${configuredRepository}" não está no formato dono/repositório; usando ${DEFAULT_REPOSITORY}`);
+}
+// Token só de leitura. Se o GitHub o recusar (401: vencido, revogado ou
+// colado errado), a função passa a pedir sem token em vez de falhar.
+let token = (Deno.env.get("RELEASES_GITHUB_TOKEN") ?? "").trim();
 const BASE = `${Deno.env.get("SUPABASE_URL") ?? ""}/functions/v1/releases`;
 // Quanto tempo a resposta do GitHub vale em memória e no cache de quem pede.
 const TTL_MS = 5 * 60_000;
@@ -69,8 +78,14 @@ class Missing extends Error {}
 
 async function upstream(url: string, accept: string, authorized: boolean): Promise<Response> {
   const headers: Record<string, string> = { Accept: accept, "User-Agent": "jayv-releases-function" };
-  if (authorized && TOKEN) headers.Authorization = `Bearer ${TOKEN}`;
+  if (authorized && token) headers.Authorization = `Bearer ${token}`;
   const response = await fetch(url, { headers, signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS) });
+  if (response.status === 401 && headers.Authorization) {
+    await response.body?.cancel();
+    console.error("releases: o GitHub recusou RELEASES_GITHUB_TOKEN (401); seguindo sem token");
+    token = "";
+    return upstream(url, accept, false);
+  }
   if (response.status === 404) {
     await response.body?.cancel();
     throw new Missing(url);
