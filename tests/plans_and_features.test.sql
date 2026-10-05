@@ -1,4 +1,4 @@
--- v0.51.0: recursos ativáveis e planos. Quem não assina recebe o plano
+-- v0.51.0: recursos ativáveis e planos (v0.60.0: o núcleo vem em todo plano). Quem não assina recebe o plano
 -- padrão; o admin liga, desliga e monta planos; ninguém mais escreve.
 begin;
 create extension if not exists pgtap with schema extensions;
@@ -16,7 +16,7 @@ $$;
 
 select pg_temp.as_user('00000000-0000-0000-0000-0000000000b2');
 select is(public.my_plan(), 'free', 'sem assinatura, o plano padrão');
-select is(jsonb_array_length(public.my_features()->'features'), 11, 'o gratuito nasce com todos os recursos');
+select is(jsonb_array_length(public.my_features()->'features'), 20, 'o gratuito nasce com todos os recursos');
 select is((public.my_features()->>'admin')::boolean, false, 'quem não é admin não é admin');
 select throws_ok($$ select public.admin_set_feature('stats', false) $$, 'P0001', 'admin.forbidden', 'só o admin desliga recurso');
 select throws_ok($$ insert into public.plans (key, name) values ('x', 'X') $$, '42501', null, 'ninguém escreve planos direto');
@@ -34,11 +34,11 @@ select throws_ok($$ select public.admin_save_plan('{"key":"yy","name":"Y","strip
 reset role;
 insert into public.subscriptions (user_id, plan_key, stripe_subscription_id, status) values ('00000000-0000-0000-0000-0000000000b2', 'pro', 'sub_1', 'active');
 select pg_temp.as_user('00000000-0000-0000-0000-0000000000b2');
-select is(public.my_features(), '{"plan":"pro","admin":false,"features":["secondOpinion"]}'::jsonb, 'assinante recebe o plano dele, sem o recurso desligado pelo admin');
+select is(public.my_features() - 'locked' - 'defaults' - 'limits', '{"plan":"pro","admin":false,"features":["entryGate","exitGate","secretRedaction","sensitiveFiles","agentSessions","contextCache","adaptiveRouting","secondOpinion"]}'::jsonb, 'assinante recebe o plano dele, com o núcleo e sem o recurso desligado pelo admin');
 reset role;
 update public.subscriptions set status = 'canceled';
 select pg_temp.as_user('00000000-0000-0000-0000-0000000000b2');
-select is(public.my_features()->'features', '["organizations"]'::jsonb, 'assinatura cancelada volta ao padrão');
+select is(public.my_features()->'features', '["entryGate","exitGate","secretRedaction","sensitiveFiles","agentSessions","contextCache","organizations","adaptiveRouting"]'::jsonb, 'assinatura cancelada volta ao padrão, com o núcleo');
 select pg_temp.as_user('00000000-0000-0000-0000-0000000000a1');
 select throws_ok($$ select public.admin_delete_plan('pro') $$, 'P0001', 'admin.error.inUse', 'plano com assinatura não é apagado');
 

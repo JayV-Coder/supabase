@@ -79,9 +79,11 @@ Deno.serve(async (request) => {
   const sent = request.headers.get("x-jev-request") ?? "";
   const requestId = REQUEST_ID.test(sent) ? sent.toLowerCase() : null;
 
-  // A conta e as perguntas não dependem uma da outra: saem juntas.
-  const [counted, questionRows] = await Promise.all([
+  // A conta, o limite do plano e as perguntas não dependem um do outro: saem
+  // juntos.
+  const [counted, planLimit, questionRows] = await Promise.all([
     requestId ? supabase.rpc("jev_count_call", { request: requestId }) : supabase.rpc("jev_count_call"),
+    supabase.rpc("my_jev_daily_limit"),
     readQuestions(supabase, set),
   ]);
   const { data: used, error: counting } = counted;
@@ -90,8 +92,11 @@ Deno.serve(async (request) => {
   if (counting) return refuse(counting.code === "PT403" ? 403 : 500, counting.code === "PT403" ? "second_factor" : "usage", `não foi possível contar o uso: ${counting.message}`);
   // As chamadas do dia vão em toda resposta, inclusive na recusa: é delas que
   // o app tira a cota diária das estatísticas.
-  const calls = { "X-Jev-Calls-Used": String(used), "X-Jev-Daily-Limit": String(DAILY_LIMIT) };
-  if (Number(used) > DAILY_LIMIT) return reply(429, { error: "limite diário do Jev atingido", code: "daily_limit" }, calls);
+  // O plano pode ter limite próprio; sem ele (ou sem a migração), vale o da função.
+  const ownLimit = Number(planLimit.error ? null : planLimit.data);
+  const limit = Number.isInteger(ownLimit) && ownLimit > 0 ? ownLimit : DAILY_LIMIT;
+  const calls = { "X-Jev-Calls-Used": String(used), "X-Jev-Daily-Limit": String(limit) };
+  if (Number(used) > limit) return reply(429, { error: "limite diário do Jev atingido", code: "daily_limit" }, calls);
 
   // A chamada que não valeu volta para o limite do dia; com id, só uma vez.
   const refund = async () => {
