@@ -2,7 +2,7 @@
 -- owner conecta, associa e remove; todo membro lê.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(25);
+select plan(26);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-0000000000e1', 'owner@teste.local'),
