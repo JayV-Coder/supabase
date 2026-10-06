@@ -190,7 +190,7 @@ create table public.translations (
 );
 
 create table public.jev_questions (
-  question_set text not null check (question_set in ('entry', 'routing', 'verification', 'asking')),
+  question_set text not null check (question_set in ('entry', 'routing', 'verification', 'asking', 'skills')),
   id text not null,
   -- A pergunta no formato que a TypeSafe recebe.
   body jsonb not null,
