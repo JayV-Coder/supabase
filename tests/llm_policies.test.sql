@@ -2,7 +2,13 @@
 -- política da organização com a do repositório que associa o projeto.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(25);
+select plan(29);
+
+-- Kilo Code, OpenRouter e LiteLLM entram na política.
+select ok(public.policy_models_ok(array['kilo/anthropic/claude-sonnet-4', 'openrouter/openai/gpt-4o-mini', 'litellm/gpt-4o-mini']), 'modelos dos três agentes novos');
+select ok(not public.policy_models_ok(array['gemini/pro']), 'agente fora da lista segue recusado');
+select ok(public.policy_mechanisms_ok(array['kilo/webSearch']), 'mecanismo de agente novo');
+select ok((select pg_get_constraintdef(oid) like '%litellm%' from pg_constraint where conname = 'organization_llm_policies_agents_check'), 'a lista de agentes aceita os três novos');
 
 insert into auth.users (id, email, email_confirmed_at, raw_user_meta_data) values
   ('00000000-0000-0000-0000-0000000000b1', 'dona@teste.local', now(), '{"user_name":"dona"}'),
