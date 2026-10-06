@@ -6,7 +6,7 @@
 // para qualquer conta do projeto.
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
 
-const SETS = ["entry", "routing", "asking"];
+const SETS = ["entry", "routing", "asking", "skills"];
 const TYPESAFE_URL = `${Deno.env.get("TYPESAFE_BASE_URL") ?? "https://api.typesafe.ai"}/v1/systemone`;
 const MODEL = Deno.env.get("TYPESAFE_DEFAULT_MODEL") ?? "jev-latest";
 // Um valor que não é número ("500 ", "abc") não pode desligar o limite.
