@@ -2,7 +2,7 @@
 -- owner conecta, associa e remove; todo membro lê.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(17);
+select plan(25);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-0000000000e1', 'owner@teste.local'),
@@ -35,6 +35,17 @@ select lives_ok($$select public.org_connect_git((select id from ids where name =
 select is((select account from public.organization_git_connections), 'acme-admin', 'uma conexão por provedor');
 select throws_ok($$select public.org_connect_git((select id from ids where name = 'org'), 'gitea', 'x')$$, 'P0001', 'org.repoInvalid', 'provedor fora da lista');
 
+-- A organização do provedor: sem ela não associa; só repositórios dela.
+select throws_ok($$select public.org_link_repositories((select id from ids where name = 'org'), 'github', '[{"path":"acme/api"}]')$$, 'P0001', 'org.gitNamespaceMissing', 'sem a organização do provedor não associa');
+select pg_temp.as_user('00000000-0000-0000-0000-0000000000e2');
+select throws_ok($$select public.org_choose_git_namespace((select id from ids where name = 'org'), 'github', 'acme')$$, 'P0001', 'org.forbidden', 'maintainer não escolhe a organização do provedor');
+select pg_temp.as_user('00000000-0000-0000-0000-0000000000e1');
+select throws_ok($$select public.org_choose_git_namespace((select id from ids where name = 'org'), 'gitlab', 'acme')$$, 'P0001', 'org.gitNotConnected', 'só no provedor conectado');
+select throws_ok($$select public.org_choose_git_namespace((select id from ids where name = 'org'), 'github', 'a b')$$, 'P0001', 'org.repoInvalid', 'nome inválido recusa');
+select lives_ok($$select public.org_choose_git_namespace((select id from ids where name = 'org'), 'github', ' Acme/ ')$$, 'owner escolhe a organização do provedor');
+select is((select namespace from public.organization_git_connections), 'acme', 'gravada em minúsculas');
+select throws_ok($$select public.org_link_repositories((select id from ids where name = 'org'), 'github', '[{"path":"outra/api"},{"path":"acme-old/x"}]')$$, 'P0001', 'org.repoOutsideNamespace', 'repositório de outra organização do provedor recusa');
+
 -- Associar.
 select is(public.org_link_repositories((select id from ids where name = 'org'), 'github',
   '[{"path":"Acme/API","external_id":"42","default_branch":"main","private":true,"description":"A API","web_url":"https://github.com/acme/api"},{"path":"acme/web.git","private":false,"web_url":"javascript:alert(1)"}]'),
@@ -54,6 +65,10 @@ select is((select count(*)::int from public.organization_git_connections), 0, 'q
 select pg_temp.as_user('00000000-0000-0000-0000-0000000000e2');
 select throws_ok($$select public.remove_repository((select id from public.organization_repositories where path = 'acme/web'))$$, 'P0001', 'org.forbidden', 'maintainer não remove repositório');
 select pg_temp.as_user('00000000-0000-0000-0000-0000000000e1');
+select public.org_connect_git((select id from ids where name = 'org'), 'github', 'acme-admin');
+select is((select namespace from public.organization_git_connections), 'acme', 'reconectar com a mesma conta mantém a organização do provedor');
+select public.org_connect_git((select id from ids where name = 'org'), 'github', 'outra-conta');
+select is((select namespace from public.organization_git_connections), null, 'outra conta pede a organização de novo');
 select public.org_disconnect_git((select id from ids where name = 'org'), 'github');
 select is((select (select count(*) from public.organization_git_connections) || '/' || (select count(*) from public.organization_repositories)), '0/2', 'desconectar mantém os repositórios');
 
