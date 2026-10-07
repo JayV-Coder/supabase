@@ -3,7 +3,7 @@
 -- e o projeto da organização ganha de uma organização de repositório.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(13);
+select plan(17);
 
 insert into auth.users (id, email, email_confirmed_at, raw_user_meta_data) values
   ('00000000-0000-0000-0000-0000000000d1', 'dona@teste.local', now(), '{"user_name":"dona"}'),
@@ -30,7 +30,13 @@ select public.set_org_mcp_server((select id from ids where name = 'org'),
 select public.set_org_mcp_server((select id from ids where name = 'org'),
   '{"name":"docs","transport":"http","command":"","args":[],"env":{},"url":"https://docs.example.com/mcp","headers":{},"agents":["claude"]}', false);
 select public.set_org_skill((select id from ids where name = 'org'), 'release-notes', 'Writes release notes.', E'# Steps\nList each change.');
-select is((select count(*)::int from public.organization_mcp_servers), 2, 'o owner grava servidores');
+-- Toda organização já nasce com os quatro servidores oficiais (como linhas comuns).
+select is((select count(*)::int from public.organization_mcp_servers where name in ('sequential-thinking', 'fetch', 'git', 'memory') and enabled), 4, 'a organização nasce com os quatro servidores oficiais');
+select is((select config->>'command' from public.organization_mcp_servers where name = 'fetch'), 'uvx', 'fetch sobe pelo uvx (o oficial é em Python)');
+select is((select count(*)::int from public.organization_mcp_servers), 6, 'o owner grava servidores além dos padrão');
+select public.remove_org_mcp_server((select id from ids where name = 'org'), 'git');
+select is((select count(*)::int from public.organization_mcp_servers where name = 'git'), 0, 'o padrão removido pelo owner fica removido');
+select public.set_org_mcp_server((select id from ids where name = 'org'), (select config from public.organization_mcp_servers where name = 'fetch'), false);
 
 select throws_ok($$select public.set_org_mcp_server((select id from ids where name = 'org'), '{"name":"jayv","transport":"stdio","command":"x"}')$$, 'P0001', 'mcp.invalid', 'o nome jayv é reservado');
 select throws_ok($$select public.set_org_mcp_server((select id from ids where name = 'org'), '{"name":"bad name","transport":"stdio","command":"x"}')$$, 'P0001', 'mcp.invalid', 'nome com espaço não vale');
@@ -47,8 +53,9 @@ select throws_ok($$select public.set_org_mcp_server((select id from ids where na
 -- O membro recebe só o que está ligado, pela linha sem projeto e pela do projeto da organização.
 insert into public.projects (id, name, created_at, repo_keys, org_id) values
   ('p-org', 'Acme', '2026-10-06T12:00:00Z', '[]', (select id from ids where name = 'org'));
-select is((select jsonb_array_length(mcp) from public.my_org_extensions() where project_id = ''), 1, 'só o servidor ligado desce');
-select is((select mcp->0->>'name' from public.my_org_extensions() where project_id = 'p-org'), 'github', 'o projeto da organização recebe o servidor');
+select is((select jsonb_array_length(mcp) from public.my_org_extensions() where project_id = ''), 5, 'os servidores descem, ligados ou desligados');
+select is((select jsonb_agg(m->>'name' order by m->>'name') from public.my_org_extensions() e, jsonb_array_elements(e.mcp) m where e.project_id = '' and (m->>'enabled')::boolean), '["github", "memory", "sequential-thinking"]'::jsonb, 'cada um desce com o enabled: o desligado não vale');
+select is((select m->>'command' from public.my_org_extensions() e, jsonb_array_elements(e.mcp) m where e.project_id = 'p-org' and m->>'name' = 'github'), 'npx', 'o projeto da organização recebe o servidor');
 select is((select skills->0->>'name' from public.my_org_extensions() where project_id = 'p-org'), 'release-notes', 'e a skill');
 
 -- Quem não é membro não recebe nada.
