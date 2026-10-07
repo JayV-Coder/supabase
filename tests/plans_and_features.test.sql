@@ -16,7 +16,7 @@ $$;
 
 select pg_temp.as_user('00000000-0000-0000-0000-0000000000b2');
 select is(public.my_plan(), 'free', 'sem assinatura, o plano padrão');
-select is(jsonb_array_length(public.my_features()->'features'), 20, 'o gratuito nasce com todos os recursos');
+select is(jsonb_array_length(public.my_features()->'features'), 26, 'o gratuito nasce com todos os recursos');
 select is((public.my_features()->>'admin')::boolean, false, 'quem não é admin não é admin');
 select throws_ok($$ select public.admin_set_feature('stats', false) $$, 'P0001', 'admin.forbidden', 'só o admin desliga recurso');
 select throws_ok($$ insert into public.plans (key, name) values ('x', 'X') $$, '42501', null, 'ninguém escreve planos direto');
