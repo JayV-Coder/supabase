@@ -2,7 +2,7 @@
 -- privacidade dos perfis e a associação de projetos pelos remotes.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(35);
+select plan(37);
 
 insert into auth.users (id, email, email_confirmed_at, raw_user_meta_data) values
   ('00000000-0000-0000-0000-0000000000a1', 'owner@teste.local', now(), '{"user_name":"dona"}'),
@@ -94,6 +94,13 @@ select is(public.project_organization('p-fora'), null, 'quem não é membro não
 
 -- A busca para convidar.
 select is((select array_agg(username order by username) from public.find_users('@ma')), array['manu'], 'busca por prefixo');
+
+-- ...e também pelo nome de exibição, em qualquer parte, sem maiúsculas.
+reset role;
+update public.profiles set display_name = 'Manuela Silva' where user_id = '00000000-0000-0000-0000-0000000000a2';
+select pg_temp.as_user('00000000-0000-0000-0000-0000000000a4');
+select is((select array_agg(username order by username) from public.find_users('SILVA')), array['manu'], 'busca pelo nome de exibição');
+select is((select array_agg(username order by username) from public.find_users('nuel')), array['manu'], 'busca no meio do nome');
 
 select * from finish();
 rollback;
