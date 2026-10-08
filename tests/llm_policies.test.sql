@@ -77,10 +77,10 @@ select throws_ok($$select public.llm_policy_of((select id from ids where name = 
 
 -- A junção, pelo projeto de um member: o fork casa pelo upstream `acme/api`.
 select pg_temp.as_user('00000000-0000-0000-0000-0000000000b3');
-insert into public.projects (id, name, created_at, repo_keys) values
-  ('p-api', 'Api', '2026-10-02T12:00:00Z', '["github.com/membro/api","github.com/acme/api"]'),
-  ('p-web', 'Web', '2026-10-02T12:00:00Z', '["github.com/acme/web"]'),
-  ('p-solto', 'Solto', '2026-10-02T12:00:00Z', '["github.com/membro/solto"]');
+insert into public.projects (id, name, created_at, repo_keys, environment_id) values
+  ('p-api', 'Api', '2026-10-02T12:00:00Z', '["github.com/membro/api","github.com/acme/api"]', (select id::text from ids where name = 'org')),
+  ('p-web', 'Web', '2026-10-02T12:00:00Z', '["github.com/acme/web"]', (select id::text from ids where name = 'org')),
+  ('p-solto', 'Solto', '2026-10-02T12:00:00Z', '["github.com/membro/solto"]', 'personal');
 select is(public.project_repository('p-api'), (select id from ids where name = 'api'), 'o repositório que associa o projeto');
 select is((select policy from public.my_project_policies() where project_id = 'p-api'),
   '{"agents": ["codex"], "blocked_models": ["claude/opus", "codex/o3"], "blocked_mechanisms": [], "deny": ["secrets/**", "*.sql"], "local_only": ["internal/**"],

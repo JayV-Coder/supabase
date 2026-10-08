@@ -33,8 +33,8 @@ select throws_ok($$select public.set_command_rules((select id from ids where nam
 select throws_ok($$select public.set_command_rules((select id from ids where name = 'acme'), null, '["a b c d"]')$$, 'policy.invalid', 'mais de três palavras é recusado');
 select throws_ok($$select public.set_command_rules((select id from ids where name = 'acme'), null, '"git"')$$, 'policy.invalid', 'só lista');
 
-insert into public.projects (id, name, created_at, repo_keys) values
-  ('p-api', 'Api', '2026-10-07T12:00:00Z', '["github.com/acme/api"]');
+insert into public.projects (id, name, created_at, repo_keys, environment_id) values
+  ('p-api', 'Api', '2026-10-07T12:00:00Z', '["github.com/acme/api"]', (select id::text from ids where name = 'acme'));
 select is((select policy->'blocked_commands' from public.my_project_policies() where project_id = 'p-api'),
   '["docker", "git push", "git reset", "npm publish"]'::jsonb, 'o projeto recebe a união da organização e do repositório');
 select is((select policy->'command_sources'->'git reset' from public.my_project_policies() where project_id = 'p-api'), '["acme"]'::jsonb, 'cada regra diz quem a bloqueia');
