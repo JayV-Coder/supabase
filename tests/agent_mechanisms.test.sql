@@ -35,14 +35,14 @@ select is((select blocked_mechanisms from public.organization_llm_policies where
 select public.set_llm_policy((select id from ids where name = 'acme'), (select id from ids where name = 'api'), '{"blocked_mechanisms": ["copilot/shell"]}');
 select public.set_llm_policy((select id from ids where name = 'outra'), null, '{"blocked_mechanisms": ["codex/webSearch", "claude/webSearch"]}');
 
-insert into public.projects (id, name, created_at, repo_keys) values
-  ('p-um', 'Um', '2026-10-04T12:00:00Z', '["github.com/acme/api"]'),
-  ('p-dois', 'Dois', '2026-10-04T12:00:00Z', '["github.com/acme/api","github.com/outra/x"]');
+insert into public.projects (id, name, created_at, repo_keys, environment_id) values
+  ('p-um', 'Um', '2026-10-04T12:00:00Z', '["github.com/acme/api"]', (select id::text from ids where name = 'acme')),
+  ('p-dois', 'Dois', '2026-10-04T12:00:00Z', '["github.com/acme/api","github.com/outra/x"]', (select id::text from ids where name = 'acme'));
 
 select is((select policy->'blocked_mechanisms' from public.my_project_policies() where project_id = 'p-um'),
   '["claude/webSearch", "copilot/shell"]'::jsonb, 'a da organização junto com a do repositório');
 select is((select policy->'blocked_mechanisms' from public.my_project_policies() where project_id = 'p-dois'),
-  '["claude/webSearch", "copilot/shell", "codex/webSearch"]'::jsonb, 'duas organizações, pela união');
+  '["claude/webSearch", "copilot/shell"]'::jsonb, 'dois repositórios: vale só a organização do ambiente');
 
 select * from finish();
 rollback;
