@@ -25,17 +25,20 @@ select public.set_llm_policy((select id from ids where name = 'acme'), null,
 select public.set_llm_policy((select id from ids where name = 'outra'), null,
   '{"agents": ["codex", "cursor"], "deny": ["*.pem", "secrets/**"], "redact_secrets": true, "min_write": "deny"}');
 
-insert into public.projects (id, name, created_at, repo_keys) values
-  ('p-dois', 'Dois', '2026-10-04T12:00:00Z', '["github.com/acme/api","github.com/outra/x"]'),
-  ('p-um', 'Um', '2026-10-04T12:00:00Z', '["github.com/acme/api"]');
+insert into public.projects (id, name, created_at, repo_keys, environment_id) values
+  ('p-dois', 'Dois', '2026-10-04T12:00:00Z', '["github.com/acme/api","github.com/outra/x"]', (select id::text from ids where name = 'acme')),
+  ('p-um', 'Um', '2026-10-04T12:00:00Z', '["github.com/acme/api"]', (select id::text from ids where name = 'acme')),
+  ('p-pessoal', 'Pessoal', '2026-10-04T12:00:00Z', '["github.com/acme/api","github.com/outra/x"]', 'personal');
 
+-- A política vale só no ambiente do projeto: no ambiente da Acme, só a da Acme.
 select is((select count(*)::int from public.my_project_policies() where project_id = 'p-dois'), 1, 'uma linha por projeto');
-select is((select policy->'agents' from public.my_project_policies() where project_id = 'p-dois'), '["codex"]'::jsonb, 'só os agentes que as duas permitem');
-select is((select policy->'deny' from public.my_project_policies() where project_id = 'p-dois'), '["secrets/**", "*.pem"]'::jsonb, 'os padrões das duas, sem repetição');
-select is((select array[policy->>'min_shell', policy->>'min_write', policy->>'redact_secrets'] from public.my_project_policies() where project_id = 'p-dois'),
-  array['ask', 'deny', 'true'], 'a regra mais rígida de cada uma');
-select is((select org_slug from public.my_project_policies() where project_id = 'p-dois'), 'acme, outra', 'a política diz de quais organizações é');
+select is((select policy->'agents' from public.my_project_policies() where project_id = 'p-dois'), '["claude", "codex"]'::jsonb, 'no ambiente da Acme vale a política da Acme');
+select is((select org_slug from public.my_project_policies() where project_id = 'p-dois'), 'acme', 'e só ela');
 select is((select policy->'agents' from public.my_project_policies() where project_id = 'p-um'), '["claude", "codex"]'::jsonb, 'com um repositório só, nada muda');
+select is_empty($$select 1 from public.my_project_policies() where project_id = 'p-pessoal'$$, 'no ambiente pessoal a política da organização não vale');
+-- Movido para o ambiente da outra organização, passa a valer a dela.
+update public.projects set environment_id = (select id::text from ids where name = 'outra') where id = 'p-dois';
+select is((select policy->'agents' from public.my_project_policies() where project_id = 'p-dois'), '["codex", "cursor"]'::jsonb, 'movido para a Outra, vale a da Outra');
 
 select * from finish();
 rollback;
