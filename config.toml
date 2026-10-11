@@ -19,3 +19,8 @@ verify_jwt = false
 # instalador chegam sem sessão. A função só lê o repositório de releases.
 [functions.releases]
 verify_jwt = false
+
+# O catálogo dos mods é público, como os releases: o app e o site o leem sem
+# sessão. A função só lê o repositório de mods.
+[functions.mods]
+verify_jwt = false
