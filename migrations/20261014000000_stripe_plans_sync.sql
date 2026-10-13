@@ -57,11 +57,36 @@ insert into public.plans (key, name, description, position, active, is_default) 
   ('enterprise', 'Enterprise', '', 20, false, false)
 on conflict (key) do nothing;
 
+-- O que cada plano traz (pedido do dono do projeto): Free é bem limitado
+-- (o núcleo, que está em todo plano, mais a busca nos chats e na conversa);
+-- Pro traz tudo, menos as funções de organização; Enterprise traz tudo, com
+-- as de organização.
 insert into public.plan_features (plan_key, feature_key, mode, default_on)
-select v.plan_key, pf.feature_key, pf.mode, pf.default_on
-from public.plan_features pf, (values ('pro'), ('enterprise')) as v(plan_key)
-where pf.plan_key = 'free'
+select 'enterprise', f.key, 'optional', true from public.features f where not f.core
 on conflict do nothing;
+insert into public.plan_features (plan_key, feature_key, mode, default_on)
+select 'pro', f.key, 'optional', true from public.features f where not f.core and f.key not in ('organizations', 'orgChat')
+on conflict do nothing;
+delete from public.plan_features pf
+where pf.plan_key = 'free'
+  and not exists (select 1 from public.features f where f.key = pf.feature_key and f.core)
+  and pf.feature_key not in ('chatSearch', 'conversationFind');
+
+-- A página pública de planos do site (sem login): só os planos à venda e o que
+-- cada um traz, sem ids do Stripe nem limites internos.
+create function public.public_plans() returns jsonb language sql stable security definer set search_path = '' as $$
+  select coalesce(jsonb_agg(jsonb_build_object(
+    'key', p.key, 'name', p.name, 'description', p.description, 'isDefault', p.is_default,
+    'priceCents', p.price_cents, 'currency', p.currency, 'interval', p.billing_interval,
+    'features', (select coalesce(jsonb_agg(jsonb_build_object('key', f.key, 'core', f.core) order by f.position, f.key), '[]'::jsonb)
+                 from public.plan_features pf join public.features f on f.key = pf.feature_key
+                 where pf.plan_key = p.key and f.enabled)
+  ) order by p.position, p.key), '[]'::jsonb)
+  from public.plans p
+  where p.active and (p.is_default or p.stripe_price_id is not null);
+$$;
+revoke execute on function public.public_plans() from public;
+grant execute on function public.public_plans() to anon, authenticated;
 
 insert into public.translations (locale, key, value) values
   ('pt-BR', 'admin.plans.description', $json$"Quem não assina fica no plano padrão. Cada plano vira um produto no Stripe quando você salva; o plano pago também ganha o preço recorrente."$json$::jsonb),
@@ -214,16 +239,16 @@ insert into public.translations (locale, key, value) values
   ('ru', 'docs.plans.title', $json$"Тарифы и подписка"$json$::jsonb),
   ('ja', 'docs.plans.title', $json$"プランとサブスクリプション"$json$::jsonb),
   ('de', 'docs.plans.title', $json$"Tarife und Abo"$json$::jsonb),
-  ('pt-BR', 'docs.plans.summary', $json$"JayV tem três planos — Free, Pro e Enterprise — e o plano decide quais recursos você tem. Free é o padrão de quem não assina; Pro e Enterprise são assinaturas pagas pelo Stripe."$json$::jsonb),
-  ('en', 'docs.plans.summary', $json$"JayV has three plans — Free, Pro and Enterprise — and the plan decides which features you have. Free is the default for anyone without a subscription; Pro and Enterprise are subscriptions paid through Stripe."$json$::jsonb),
-  ('es', 'docs.plans.summary', $json$"JayV tiene tres planes — Free, Pro y Enterprise — y el plan decide qué funciones tienes. Free es el predeterminado de quien no se suscribe; Pro y Enterprise son suscripciones que se pagan por Stripe."$json$::jsonb),
-  ('zh-CN', 'docs.plans.summary', $json$"JayV 有三个套餐：Free、Pro 和 Enterprise，套餐决定你能使用哪些功能。Free 是未订阅用户的默认套餐；Pro 和 Enterprise 是通过 Stripe 付费的订阅。"$json$::jsonb),
-  ('hi', 'docs.plans.summary', $json$"JayV के तीन प्लान हैं — Free, Pro और Enterprise — और प्लान तय करता है कि आपके पास कौन-सी सुविधाएँ हैं। Free उन सबके लिए डिफ़ॉल्ट है जिनकी सदस्यता नहीं है; Pro और Enterprise Stripe से भुगतान वाली सदस्यताएँ हैं।"$json$::jsonb),
-  ('ar', 'docs.plans.summary', $json$"لدى JayV ثلاث خطط — Free وPro وEnterprise — وتحدد الخطة المزايا المتاحة لك. Free هي الافتراضية لمن لا اشتراك له؛ أما Pro وEnterprise فاشتراكان مدفوعان عبر Stripe."$json$::jsonb),
-  ('fr', 'docs.plans.summary', $json$"JayV propose trois forfaits — Free, Pro et Enterprise — et le forfait décide des fonctionnalités dont vous disposez. Free est le forfait par défaut sans abonnement ; Pro et Enterprise sont des abonnements payés via Stripe."$json$::jsonb),
-  ('ru', 'docs.plans.summary', $json$"В JayV три тарифа — Free, Pro и Enterprise — и тариф определяет, какие функции вам доступны. Free — тариф по умолчанию без подписки; Pro и Enterprise — платные подписки через Stripe."$json$::jsonb),
-  ('ja', 'docs.plans.summary', $json$"JayV には Free、Pro、Enterprise の 3 つのプランがあり、プランによって使える機能が決まります。Free は未契約の人のデフォルトで、Pro と Enterprise は Stripe で支払うサブスクリプションです。"$json$::jsonb),
-  ('de', 'docs.plans.summary', $json$"JayV hat drei Tarife – Free, Pro und Enterprise – und der Tarif bestimmt, welche Funktionen Sie haben. Free gilt standardmäßig ohne Abo; Pro und Enterprise sind über Stripe bezahlte Abos."$json$::jsonb),
+  ('pt-BR', 'docs.plans.summary', $json$"JayV tem três planos e o plano decide quais recursos você tem. Free é o padrão de quem não assina e é bem limitado; Pro traz todas as funções, menos as de organização; Enterprise traz tudo do Pro mais as funções de organização. Pro e Enterprise são assinaturas pagas pelo Stripe."$json$::jsonb),
+  ('en', 'docs.plans.summary', $json$"JayV has three plans and the plan decides which features you have. Free is the default for anyone without a subscription and is quite limited; Pro brings every function except the organization ones; Enterprise brings everything in Pro plus the organization functions. Pro and Enterprise are subscriptions paid through Stripe."$json$::jsonb),
+  ('es', 'docs.plans.summary', $json$"JayV tiene tres planes y el plan decide qué funciones tienes. Free es el predeterminado de quien no se suscribe y es bastante limitado; Pro trae todas las funciones salvo las de organización; Enterprise trae todo lo de Pro más las funciones de organización. Pro y Enterprise son suscripciones que se pagan por Stripe."$json$::jsonb),
+  ('zh-CN', 'docs.plans.summary', $json$"JayV 有三个套餐，套餐决定你能使用哪些功能。Free 是未订阅用户的默认套餐，功能非常有限；Pro 包含除组织功能外的所有功能；Enterprise 包含 Pro 的全部功能，外加组织功能。Pro 和 Enterprise 是通过 Stripe 付费的订阅。"$json$::jsonb),
+  ('hi', 'docs.plans.summary', $json$"JayV के तीन प्लान हैं और प्लान तय करता है कि आपके पास कौन-सी सुविधाएँ हैं। Free उन सबके लिए डिफ़ॉल्ट है जिनकी सदस्यता नहीं है और काफ़ी सीमित है; Pro में संगठन की सुविधाओं को छोड़कर सब कुछ है; Enterprise में Pro की सब सुविधाएँ और संगठन की सुविधाएँ भी हैं। Pro और Enterprise Stripe से भुगतान वाली सदस्यताएँ हैं।"$json$::jsonb),
+  ('ar', 'docs.plans.summary', $json$"لدى JayV ثلاث خطط وتحدد الخطة المزايا المتاحة لك. Free هي الافتراضية لمن لا اشتراك له وهي محدودة جدًا؛ وPro تضم كل الوظائف عدا وظائف المؤسسة؛ وEnterprise تضم كل ما في Pro إضافةً إلى وظائف المؤسسة. أما Pro وEnterprise فاشتراكان مدفوعان عبر Stripe."$json$::jsonb),
+  ('fr', 'docs.plans.summary', $json$"JayV propose trois forfaits et le forfait décide des fonctionnalités dont vous disposez. Free est le forfait par défaut sans abonnement et il est très limité ; Pro apporte toutes les fonctions sauf celles d’organisation ; Enterprise apporte tout Pro plus les fonctions d’organisation. Pro et Enterprise sont des abonnements payés via Stripe."$json$::jsonb),
+  ('ru', 'docs.plans.summary', $json$"В JayV три тарифа, и тариф определяет, какие функции вам доступны. Free — тариф по умолчанию без подписки, он сильно ограничен; Pro даёт все функции, кроме организационных; Enterprise даёт всё из Pro и организационные функции. Pro и Enterprise — платные подписки через Stripe."$json$::jsonb),
+  ('ja', 'docs.plans.summary', $json$"JayV には 3 つのプランがあり、プランによって使える機能が決まります。Free は未契約の人のデフォルトでかなり制限されています。Pro は組織向け機能を除くすべての機能が使え、Enterprise は Pro のすべてに組織向け機能が加わります。Pro と Enterprise は Stripe で支払うサブスクリプションです。"$json$::jsonb),
+  ('de', 'docs.plans.summary', $json$"JayV hat drei Tarife und der Tarif bestimmt, welche Funktionen Sie haben. Free gilt standardmäßig ohne Abo und ist stark eingeschränkt; Pro bringt alle Funktionen außer denen für Organisationen; Enterprise bringt alles aus Pro plus die Organisationsfunktionen. Pro und Enterprise sind über Stripe bezahlte Abos."$json$::jsonb),
   ('pt-BR', 'docs.plans.usage', $json$"Abra Planos na barra lateral (ou Ctrl+K › Planos) para ver o que cada plano inclui. Assinar abre o pagamento do Stripe no navegador e, quando ele termina, o JayV atualiza o plano sozinho; Gerenciar assinatura abre o portal do Stripe para trocar o cartão ou o plano e cancelar. Quem administra o sistema monta os planos no site (Dashboard › Administração › Planos): ao salvar, cada plano vira um produto no Stripe e o plano pago ganha o preço recorrente; trocar o valor cria um preço novo e tira o antigo de venda. Um plano só fica à venda depois de enviado ao Stripe."$json$::jsonb),
   ('en', 'docs.plans.usage', $json$"Open Plans in the sidebar (or Ctrl+K › Plans) to see what each plan includes. Subscribe opens Stripe's payment in the browser and, when it finishes, JayV updates the plan by itself; Manage subscription opens Stripe's portal to change the card or the plan and to cancel. Whoever administers the system builds the plans on the site (Dashboard › Administration › Plans): when you save, each plan becomes a product in Stripe and a paid plan gets its recurring price; changing the amount creates a new price and takes the old one off sale. A plan only goes on sale once it has been sent to Stripe."$json$::jsonb),
   ('es', 'docs.plans.usage', $json$"Abre Planes en la barra lateral (o Ctrl+K › Planes) para ver qué incluye cada plan. Suscribirse abre el pago de Stripe en el navegador y, al terminar, JayV actualiza el plan solo; Gestionar suscripción abre el portal de Stripe para cambiar la tarjeta o el plan y cancelar. Quien administra el sistema arma los planes en el sitio (Panel › Administración › Planes): al guardar, cada plan se convierte en un producto de Stripe y el plan de pago recibe su precio recurrente; cambiar el importe crea un precio nuevo y retira el anterior de la venta. Un plan solo se vende una vez enviado a Stripe."$json$::jsonb),
@@ -274,6 +299,126 @@ insert into public.translations (locale, key, value) values
   ('ru', 'whatsNew.item.modsDocs.detail', $json$"Страницы о модах переехали из «Агенты и модели» в раздел «Моды»: система модов универсальна и не ограничена агентами."$json$::jsonb),
   ('ja', 'whatsNew.item.modsDocs.detail', $json$"Mod のページを「エージェントとモデル」から Mod セクションに移しました。Mod の仕組みは汎用で、エージェントだけに限られないためです。"$json$::jsonb),
   ('de', 'whatsNew.item.modsDocs.detail', $json$"Die Mod-Seiten sind aus „Agenten und Modelle“ in den Abschnitt Mods umgezogen: Das Mod-System ist generisch und nicht auf Agenten beschränkt."$json$::jsonb),
+  ('pt-BR', 'site.nav.plans', $json$"Planos"$json$::jsonb),
+  ('en', 'site.nav.plans', $json$"Plans"$json$::jsonb),
+  ('es', 'site.nav.plans', $json$"Planes"$json$::jsonb),
+  ('zh-CN', 'site.nav.plans', $json$"套餐"$json$::jsonb),
+  ('hi', 'site.nav.plans', $json$"प्लान"$json$::jsonb),
+  ('ar', 'site.nav.plans', $json$"الخطط"$json$::jsonb),
+  ('fr', 'site.nav.plans', $json$"Forfaits"$json$::jsonb),
+  ('ru', 'site.nav.plans', $json$"Тарифы"$json$::jsonb),
+  ('ja', 'site.nav.plans', $json$"プラン"$json$::jsonb),
+  ('de', 'site.nav.plans', $json$"Tarife"$json$::jsonb),
+  ('pt-BR', 'site.plans.eyebrow', $json$"Planos"$json$::jsonb),
+  ('en', 'site.plans.eyebrow', $json$"Plans"$json$::jsonb),
+  ('es', 'site.plans.eyebrow', $json$"Planes"$json$::jsonb),
+  ('zh-CN', 'site.plans.eyebrow', $json$"套餐"$json$::jsonb),
+  ('hi', 'site.plans.eyebrow', $json$"प्लान"$json$::jsonb),
+  ('ar', 'site.plans.eyebrow', $json$"الخطط"$json$::jsonb),
+  ('fr', 'site.plans.eyebrow', $json$"Forfaits"$json$::jsonb),
+  ('ru', 'site.plans.eyebrow', $json$"Тарифы"$json$::jsonb),
+  ('ja', 'site.plans.eyebrow', $json$"プラン"$json$::jsonb),
+  ('de', 'site.plans.eyebrow', $json$"Tarife"$json$::jsonb),
+  ('pt-BR', 'site.plans.title', $json$"Escolha o plano do JayV"$json$::jsonb),
+  ('en', 'site.plans.title', $json$"Pick your JayV plan"$json$::jsonb),
+  ('es', 'site.plans.title', $json$"Elige tu plan de JayV"$json$::jsonb),
+  ('zh-CN', 'site.plans.title', $json$"选择你的 JayV 套餐"$json$::jsonb),
+  ('hi', 'site.plans.title', $json$"अपना JayV प्लान चुनें"$json$::jsonb),
+  ('ar', 'site.plans.title', $json$"اختر خطتك في JayV"$json$::jsonb),
+  ('fr', 'site.plans.title', $json$"Choisissez votre forfait JayV"$json$::jsonb),
+  ('ru', 'site.plans.title', $json$"Выберите тариф JayV"$json$::jsonb),
+  ('ja', 'site.plans.title', $json$"JayV のプランを選ぶ"$json$::jsonb),
+  ('de', 'site.plans.title', $json$"Wählen Sie Ihren JayV-Tarif"$json$::jsonb),
+  ('pt-BR', 'site.plans.description', $json$"Comece de graça e assine quando precisar de mais. Free é bem limitado; Pro traz todas as funções, menos as de organização; Enterprise traz tudo, inclusive as funções de organização."$json$::jsonb),
+  ('en', 'site.plans.description', $json$"Start for free and subscribe when you need more. Free is quite limited; Pro brings every function except the organization ones; Enterprise brings everything, organization functions included."$json$::jsonb),
+  ('es', 'site.plans.description', $json$"Empieza gratis y suscríbete cuando necesites más. Free es bastante limitado; Pro trae todas las funciones salvo las de organización; Enterprise lo trae todo, incluidas las funciones de organización."$json$::jsonb),
+  ('zh-CN', 'site.plans.description', $json$"免费开始，需要更多时再订阅。Free 功能有限；Pro 包含除组织功能外的所有功能；Enterprise 包含全部功能，含组织功能。"$json$::jsonb),
+  ('hi', 'site.plans.description', $json$"मुफ़्त शुरू करें और ज़्यादा की ज़रूरत हो तो सदस्यता लें। Free काफ़ी सीमित है; Pro में संगठन की सुविधाओं को छोड़कर सब कुछ है; Enterprise में संगठन की सुविधाओं समेत सब कुछ है।"$json$::jsonb),
+  ('ar', 'site.plans.description', $json$"ابدأ مجانًا واشترك عندما تحتاج إلى المزيد. Free محدودة جدًا؛ وPro تضم كل الوظائف عدا وظائف المؤسسة؛ وEnterprise تضم كل شيء بما فيه وظائف المؤسسة."$json$::jsonb),
+  ('fr', 'site.plans.description', $json$"Commencez gratuitement et abonnez-vous quand il vous en faut plus. Free est très limité ; Pro apporte toutes les fonctions sauf celles d’organisation ; Enterprise apporte tout, fonctions d’organisation comprises."$json$::jsonb),
+  ('ru', 'site.plans.description', $json$"Начните бесплатно и подпишитесь, когда понадобится больше. Free сильно ограничен; Pro даёт все функции, кроме организационных; Enterprise даёт всё, включая организационные функции."$json$::jsonb),
+  ('ja', 'site.plans.description', $json$"無料で始めて、必要になったら申し込めます。Free はかなり制限されています。Pro は組織向け機能を除くすべての機能、Enterprise は組織向け機能を含むすべてを使えます。"$json$::jsonb),
+  ('de', 'site.plans.description', $json$"Starten Sie kostenlos und abonnieren Sie, wenn Sie mehr brauchen. Free ist stark eingeschränkt; Pro bringt alle Funktionen außer denen für Organisationen; Enterprise bringt alles, auch die Organisationsfunktionen."$json$::jsonb),
+  ('pt-BR', 'site.plans.free', $json$"Grátis"$json$::jsonb),
+  ('en', 'site.plans.free', $json$"Free"$json$::jsonb),
+  ('es', 'site.plans.free', $json$"Gratis"$json$::jsonb),
+  ('zh-CN', 'site.plans.free', $json$"免费"$json$::jsonb),
+  ('hi', 'site.plans.free', $json$"मुफ़्त"$json$::jsonb),
+  ('ar', 'site.plans.free', $json$"مجاني"$json$::jsonb),
+  ('fr', 'site.plans.free', $json$"Gratuit"$json$::jsonb),
+  ('ru', 'site.plans.free', $json$"Бесплатно"$json$::jsonb),
+  ('ja', 'site.plans.free', $json$"無料"$json$::jsonb),
+  ('de', 'site.plans.free', $json$"Kostenlos"$json$::jsonb),
+  ('pt-BR', 'site.plans.month', $json$"/ mês"$json$::jsonb),
+  ('en', 'site.plans.month', $json$"/ month"$json$::jsonb),
+  ('es', 'site.plans.month', $json$"/ mes"$json$::jsonb),
+  ('zh-CN', 'site.plans.month', $json$"/ 月"$json$::jsonb),
+  ('hi', 'site.plans.month', $json$"/ माह"$json$::jsonb),
+  ('ar', 'site.plans.month', $json$"/ شهر"$json$::jsonb),
+  ('fr', 'site.plans.month', $json$"/ mois"$json$::jsonb),
+  ('ru', 'site.plans.month', $json$"/ мес."$json$::jsonb),
+  ('ja', 'site.plans.month', $json$"/ 月"$json$::jsonb),
+  ('de', 'site.plans.month', $json$"/ Monat"$json$::jsonb),
+  ('pt-BR', 'site.plans.year', $json$"/ ano"$json$::jsonb),
+  ('en', 'site.plans.year', $json$"/ year"$json$::jsonb),
+  ('es', 'site.plans.year', $json$"/ año"$json$::jsonb),
+  ('zh-CN', 'site.plans.year', $json$"/ 年"$json$::jsonb),
+  ('hi', 'site.plans.year', $json$"/ वर्ष"$json$::jsonb),
+  ('ar', 'site.plans.year', $json$"/ سنة"$json$::jsonb),
+  ('fr', 'site.plans.year', $json$"/ an"$json$::jsonb),
+  ('ru', 'site.plans.year', $json$"/ год"$json$::jsonb),
+  ('ja', 'site.plans.year', $json$"/ 年"$json$::jsonb),
+  ('de', 'site.plans.year', $json$"/ Jahr"$json$::jsonb),
+  ('pt-BR', 'site.plans.includes', $json$"Inclui"$json$::jsonb),
+  ('en', 'site.plans.includes', $json$"Includes"$json$::jsonb),
+  ('es', 'site.plans.includes', $json$"Incluye"$json$::jsonb),
+  ('zh-CN', 'site.plans.includes', $json$"包含"$json$::jsonb),
+  ('hi', 'site.plans.includes', $json$"शामिल"$json$::jsonb),
+  ('ar', 'site.plans.includes', $json$"يشمل"$json$::jsonb),
+  ('fr', 'site.plans.includes', $json$"Inclut"$json$::jsonb),
+  ('ru', 'site.plans.includes', $json$"Включает"$json$::jsonb),
+  ('ja', 'site.plans.includes', $json$"含まれるもの"$json$::jsonb),
+  ('de', 'site.plans.includes', $json$"Enthält"$json$::jsonb),
+  ('pt-BR', 'site.plans.core', $json$"Todo plano traz a portaria, a proteção de segredos e arquivos sensíveis, as sessões dos agentes, o cache de contexto e a escolha adaptativa de agentes."$json$::jsonb),
+  ('en', 'site.plans.core', $json$"Every plan includes the gatehouse, secret and sensitive-file protection, agent sessions, the context cache and adaptive routing."$json$::jsonb),
+  ('es', 'site.plans.core', $json$"Todo plan incluye la portería, la protección de secretos y archivos sensibles, las sesiones de agentes, la caché de contexto y el enrutamiento adaptativo."$json$::jsonb),
+  ('zh-CN', 'site.plans.core', $json$"每个套餐都包含门禁、密钥与敏感文件保护、智能体会话、上下文缓存和自适应路由。"$json$::jsonb),
+  ('hi', 'site.plans.core', $json$"हर प्लान में गेट, गोपनीय जानकारी और संवेदनशील फ़ाइलों की सुरक्षा, एजेंट सत्र, संदर्भ कैश और अनुकूली रूटिंग शामिल हैं।"$json$::jsonb),
+  ('ar', 'site.plans.core', $json$"تشمل كل خطة البوابة وحماية الأسرار والملفات الحساسة وجلسات الوكلاء وذاكرة السياق والتوجيه التكيفي."$json$::jsonb),
+  ('fr', 'site.plans.core', $json$"Chaque forfait inclut la conciergerie, la protection des secrets et des fichiers sensibles, les sessions d’agents, le cache de contexte et le routage adaptatif."$json$::jsonb),
+  ('ru', 'site.plans.core', $json$"Каждый тариф включает проходную, защиту секретов и чувствительных файлов, сессии агентов, кэш контекста и адаптивную маршрутизацию."$json$::jsonb),
+  ('ja', 'site.plans.core', $json$"どのプランにも、ゲート、秘密情報と機密ファイルの保護、エージェントのセッション、コンテキストキャッシュ、適応型ルーティングが含まれます。"$json$::jsonb),
+  ('de', 'site.plans.core', $json$"Jeder Tarif enthält die Pforte, den Schutz von Geheimnissen und sensiblen Dateien, Agentensitzungen, den Kontext-Cache und das adaptive Routing."$json$::jsonb),
+  ('pt-BR', 'site.plans.how', $json$"Crie a conta, baixe o JayV e assine em Planos, dentro do app. O pagamento é feito pelo Stripe."$json$::jsonb),
+  ('en', 'site.plans.how', $json$"Create your account, download JayV and subscribe under Plans inside the app. Payment is handled by Stripe."$json$::jsonb),
+  ('es', 'site.plans.how', $json$"Crea tu cuenta, descarga JayV y suscríbete en Planes, dentro de la app. El pago lo gestiona Stripe."$json$::jsonb),
+  ('zh-CN', 'site.plans.how', $json$"创建账户、下载 JayV，然后在应用内的“套餐”中订阅。支付由 Stripe 处理。"$json$::jsonb),
+  ('hi', 'site.plans.how', $json$"खाता बनाएँ, JayV डाउनलोड करें और ऐप के भीतर प्लान में सदस्यता लें। भुगतान Stripe से होता है।"$json$::jsonb),
+  ('ar', 'site.plans.how', $json$"أنشئ حسابك ونزّل JayV واشترك من «الخطط» داخل التطبيق. يتولى Stripe الدفع."$json$::jsonb),
+  ('fr', 'site.plans.how', $json$"Créez votre compte, téléchargez JayV et abonnez-vous dans Forfaits, depuis l’app. Le paiement passe par Stripe."$json$::jsonb),
+  ('ru', 'site.plans.how', $json$"Создайте аккаунт, скачайте JayV и оформите подписку в разделе «Тарифы» внутри приложения. Оплата проходит через Stripe."$json$::jsonb),
+  ('ja', 'site.plans.how', $json$"アカウントを作成して JayV をダウンロードし、アプリ内の「プラン」から申し込みます。支払いは Stripe で処理されます。"$json$::jsonb),
+  ('de', 'site.plans.how', $json$"Erstellen Sie Ihr Konto, laden Sie JayV herunter und abonnieren Sie unter Tarife in der App. Die Zahlung läuft über Stripe."$json$::jsonb),
+  ('pt-BR', 'site.plans.empty', $json$"Os planos não estão disponíveis agora."$json$::jsonb),
+  ('en', 'site.plans.empty', $json$"Plans are not available right now."$json$::jsonb),
+  ('es', 'site.plans.empty', $json$"Los planes no están disponibles ahora."$json$::jsonb),
+  ('zh-CN', 'site.plans.empty', $json$"套餐暂时不可用。"$json$::jsonb),
+  ('hi', 'site.plans.empty', $json$"प्लान अभी उपलब्ध नहीं हैं।"$json$::jsonb),
+  ('ar', 'site.plans.empty', $json$"الخطط غير متاحة الآن."$json$::jsonb),
+  ('fr', 'site.plans.empty', $json$"Les forfaits ne sont pas disponibles pour le moment."$json$::jsonb),
+  ('ru', 'site.plans.empty', $json$"Тарифы сейчас недоступны."$json$::jsonb),
+  ('ja', 'site.plans.empty', $json$"現在プランを表示できません。"$json$::jsonb),
+  ('de', 'site.plans.empty', $json$"Die Tarife sind gerade nicht verfügbar."$json$::jsonb),
+  ('pt-BR', 'site.plans.current', $json$"Padrão de quem não assina"$json$::jsonb),
+  ('en', 'site.plans.current', $json$"Default without a subscription"$json$::jsonb),
+  ('es', 'site.plans.current', $json$"Predeterminado sin suscripción"$json$::jsonb),
+  ('zh-CN', 'site.plans.current', $json$"未订阅时的默认套餐"$json$::jsonb),
+  ('hi', 'site.plans.current', $json$"सदस्यता के बिना डिफ़ॉल्ट"$json$::jsonb),
+  ('ar', 'site.plans.current', $json$"الافتراضية بلا اشتراك"$json$::jsonb),
+  ('fr', 'site.plans.current', $json$"Par défaut sans abonnement"$json$::jsonb),
+  ('ru', 'site.plans.current', $json$"По умолчанию без подписки"$json$::jsonb),
+  ('ja', 'site.plans.current', $json$"未契約時のデフォルト"$json$::jsonb),
+  ('de', 'site.plans.current', $json$"Standard ohne Abo"$json$::jsonb),
   ('pt-BR', 'tutorial.tour.plans', $json$"Planos"$json$::jsonb),
   ('en', 'tutorial.tour.plans', $json$"Plans"$json$::jsonb),
   ('es', 'tutorial.tour.plans', $json$"Planes"$json$::jsonb),

@@ -2,7 +2,7 @@
 -- padrão; o admin liga, desliga e monta planos; ninguém mais escreve.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(24);
+select plan(29);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-0000000000a1', 'admin@teste.local'),
@@ -16,7 +16,12 @@ $$;
 
 select pg_temp.as_user('00000000-0000-0000-0000-0000000000b2');
 select is(public.my_plan(), 'free', 'sem assinatura, o plano padrão');
-select is(jsonb_array_length(public.my_features()->'features'), 27, 'o gratuito nasce com todos os recursos');
+select is(jsonb_array_length(public.my_features()->'features'), 9, 'o gratuito é bem limitado: o núcleo e a busca');
+select is((select count(*) from public.plan_features where plan_key = 'pro' and feature_key in ('organizations', 'orgChat')), 0::bigint, 'o Pro não traz as funções de organização');
+select is((select count(*) from public.plan_features where plan_key = 'enterprise' and feature_key in ('organizations', 'orgChat')), 2::bigint, 'o Enterprise traz as de organização');
+select is((select count(*) from public.plan_features pf join public.features f on f.key = pf.feature_key where pf.plan_key = 'pro' and not f.core), (select count(*) - 2 from public.features where not core), 'e o Pro traz todo o resto');
+select is(jsonb_array_length(public.public_plans()), 1, 'a página pública mostra só o que está à venda: o gratuito, por enquanto');
+select is(public.public_plans()->0->>'key', 'free', 'e é o gratuito');
 select is((public.my_features()->>'admin')::boolean, false, 'quem não é admin não é admin');
 select throws_ok($$ select public.admin_set_feature('stats', false) $$, 'P0001', 'admin.forbidden', 'só o admin desliga recurso');
 select throws_ok($$ insert into public.plans (key, name) values ('x', 'X') $$, '42501', null, 'ninguém escreve planos direto');
