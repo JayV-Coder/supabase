@@ -1,11 +1,15 @@
 // Pagamento dos planos pelo Stripe. Com o JWT do usuário:
 //   POST { action: "checkout", plan }  → { url }  página de pagamento do Stripe
 //   POST { action: "portal" }          → { url }  portal para trocar cartão, plano ou cancelar
+//   POST { action: "sync_plan", plan }     → { productId, priceId }  (só admin) cria ou atualiza
+//        o produto e o preço do plano no Stripe, a partir do que o admin salvou no site
+//   POST { action: "archive_plan", productId, priceId? }  → { ok }  (só admin) arquiva, depois de o
+//        plano ser apagado, o produto (e o preço) que o JayV criou
 // Sem JWT, o navegador volta do Stripe para cá:
 //   GET ?return=done|cancel|portal     → 303 para jayv://billing/<return>, que reabre o app
 //
 // Quem já tem assinatura valendo e pede checkout recebe o portal: uma conta
-// tem uma assinatura só. A assinatura em si só é gravada pelo `stripe-webhook`.
+// tem uma assinatura só. A assinatura em si só é gravada pelo `billing-webhook`.
 //
 // Segredos (Edge Functions → Secrets): STRIPE_SECRET_KEY. A chave nunca vai
 // para o app.
@@ -61,7 +65,7 @@ Deno.serve(async (request) => {
   }
   if (!subject) return refuse(401, "session", "sessão inválida ou expirada");
 
-  let input: { action?: unknown; plan?: unknown };
+  let input: { action?: unknown; plan?: unknown; productId?: unknown; priceId?: unknown };
   try {
     input = await request.json();
   } catch {
@@ -93,8 +97,98 @@ Deno.serve(async (request) => {
     return reply(200, { url: session.url, portal: true });
   }
 
+  type PlanRow = {
+    key: string; name: string; description: string; active: boolean; is_default: boolean;
+    price_cents: number | null; currency: string | null; billing_interval: "month" | "year" | null;
+    stripe_product_id: string | null; stripe_price_id: string | null;
+  };
+
+  async function loadPlan(key: string): Promise<PlanRow | Response> {
+    const { data, error } = await admin.from("plans")
+      .select("key, name, description, active, is_default, price_cents, currency, billing_interval, stripe_product_id, stripe_price_id")
+      .eq("key", key).maybeSingle();
+    if (error) throw error;
+    if (!data) return refuse(404, "plan", "plano desconhecido");
+    return data as PlanRow;
+  }
+
+  /** O produto do plano no Stripe: o que o banco já guarda ou, se um envio
+   * anterior morreu antes de gravar, o que já existe com a chave do plano. */
+  async function productOf(plan: PlanRow): Promise<string | null> {
+    if (plan.stripe_product_id) return plan.stripe_product_id;
+    const found = await stripe.products.search({ query: `metadata['plan_key']:'${plan.key}'`, limit: 1 });
+    return found.data[0]?.id ?? null;
+  }
+
+  /** Envia o plano ao Stripe: um produto por plano (o gratuito também, sem
+   * preço) e, no plano à venda, um preço recorrente. Preço no Stripe não
+   * muda: se valor, moeda ou intervalo mudaram, cria um novo, põe-no como
+   * padrão do produto e arquiva o antigo. */
+  async function syncPlan(key: string): Promise<Response> {
+    const plan = await loadPlan(key);
+    if (plan instanceof Response) return plan;
+    const fields = { name: plan.name, description: plan.description || undefined, active: plan.active, metadata: { plan_key: plan.key } };
+    let productId = await productOf(plan);
+    if (productId) await stripe.products.update(productId, { ...fields, description: plan.description || "" });
+    else productId = (await stripe.products.create(fields)).id;
+
+    const selling = !plan.is_default && plan.active;
+    if (selling && (!plan.price_cents || !plan.currency || !plan.billing_interval)) {
+      return refuse(422, "price", "defina preço, moeda e intervalo para vender o plano");
+    }
+    let priceId = plan.stripe_price_id;
+    let retired: string | null = null;
+    if (selling) {
+      const current = priceId ? await stripe.prices.retrieve(priceId).catch(() => null) : null;
+      const same = current && current.active && current.product === productId && current.unit_amount === plan.price_cents
+        && current.currency === plan.currency && current.recurring?.interval === plan.billing_interval;
+      if (!same) {
+        const created = await stripe.prices.create({
+          product: productId, unit_amount: plan.price_cents!, currency: plan.currency!,
+          recurring: { interval: plan.billing_interval! }, metadata: { plan_key: plan.key },
+        });
+        await stripe.products.update(productId, { default_price: created.id });
+        retired = priceId;
+        priceId = created.id;
+      }
+    } else if (plan.is_default) {
+      priceId = null;
+    }
+    const { error } = await admin.from("plans")
+      .update({ stripe_product_id: productId, stripe_price_id: priceId, stripe_synced_at: new Date().toISOString() })
+      .eq("key", plan.key);
+    if (error) throw error;
+    // Só depois de o banco apontar para o preço novo, o antigo sai de venda.
+    if (retired) await stripe.prices.update(retired, { active: false }).catch((cause) => console.error("billing: preço antigo", cause));
+    return reply(200, { productId, priceId });
+  }
+
+  /** O plano apagado deixa de estar à venda no Stripe: produto e preço são
+   * arquivados, não apagados (quem assinou continua cobrado até cancelar). Só
+   * mexe em produto que o JayV criou (leva `plan_key` nos metadados) e que
+   * nenhum plano usa mais. */
+  async function archivePlan(productId: string, priceId: string | null): Promise<Response> {
+    if (!/^prod_[A-Za-z0-9]+$/.test(productId)) return refuse(400, "product", "produto inválido");
+    const product = await stripe.products.retrieve(productId);
+    if (!product.metadata?.plan_key) return refuse(422, "product", "este produto não é de um plano do JayV");
+    const { data: used } = await admin.from("plans").select("key").eq("stripe_product_id", productId).maybeSingle();
+    if (used) return refuse(409, "product", "um plano ainda usa este produto");
+    if (priceId) await stripe.prices.update(priceId, { active: false }).catch((cause) => console.error("billing: preço", cause));
+    await stripe.products.update(productId, { active: false });
+    return reply(200, { ok: true });
+  }
+
   try {
     if (input.action === "portal") return await portal();
+    if (input.action === "sync_plan" || input.action === "archive_plan") {
+      // Quem decide é o banco: `my_features().admin` lê `is_admin()` com o
+      // token de quem chama, segundo fator incluído.
+      const { data: me } = await user.rpc("my_features");
+      if (!(me as { admin?: boolean } | null)?.admin) return refuse(403, "forbidden", "só o admin do sistema");
+      return input.action === "sync_plan"
+        ? await syncPlan(String(input.plan ?? ""))
+        : await archivePlan(String(input.productId ?? ""), input.priceId ? String(input.priceId) : null);
+    }
     if (input.action !== "checkout") return refuse(400, "action", "ação desconhecida");
 
     const { data: current } = await user.from("subscriptions").select("status").maybeSingle();
@@ -108,11 +202,13 @@ Deno.serve(async (request) => {
 
     const { data: plan, error: missing } = await user
       .from("plans")
-      .select("key, stripe_price_id, active")
+      .select("key, stripe_price_id, stripe_synced_at, active")
       .eq("key", String(input.plan ?? ""))
       .maybeSingle();
     if (missing) return refuse(403, "read", missing.message);
-    if (!plan || !plan.active || !plan.stripe_price_id) return refuse(422, "plan", "plano sem preço no Stripe ou inativo");
+    // `stripe_synced_at` vazio: o admin mexeu no plano e o Stripe ainda não
+    // recebeu — o preço que ele cobraria não é o que a página mostra.
+    if (!plan || !plan.active || !plan.stripe_price_id || !plan.stripe_synced_at) return refuse(422, "plan", "plano sem preço no Stripe, desatualizado ou inativo");
 
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",

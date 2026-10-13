@@ -2,7 +2,7 @@
 -- padrão; o admin liga, desliga e monta planos; ninguém mais escreve.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(16);
+select plan(24);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-0000000000a1', 'admin@teste.local'),
@@ -25,11 +25,24 @@ select throws_ok($$ insert into public.subscriptions (user_id, stripe_subscripti
 select pg_temp.as_user('00000000-0000-0000-0000-0000000000a1');
 select is((public.my_features()->>'admin')::boolean, true, 'o admin se vê admin');
 select lives_ok($$ select public.admin_set_feature('stats', false) $$, 'o admin desliga um recurso');
-select lives_ok($$ select public.admin_save_plan('{"key":"pro","name":"Pro","stripe_price_id":"price_ABC12345","price_cents":4900,"currency":"brl","billing_interval":"month","features":["stats","secondOpinion"]}') $$, 'e cria um plano pago');
+select lives_ok($$ select public.admin_save_plan('{"key":"pro","name":"Pro","price_cents":4900,"currency":"brl","billing_interval":"month","features":["stats","secondOpinion"]}') $$, 'e cria um plano pago');
 select lives_ok($$ select public.admin_save_plan('{"key":"free","name":"Free","is_default":true,"features":["organizations"]}') $$, 'e tira recursos do gratuito');
 select throws_ok($$ select public.admin_save_plan('{"key":"free","name":"Free","is_default":false,"features":[]}') $$, 'P0001', 'admin.error.default', 'sempre há um plano padrão');
 select throws_ok($$ select public.admin_save_plan('{"key":"xx","name":"X","features":["nada"]}') $$, 'P0001', 'admin.error.unknownFeature', 'recurso fora do catálogo recusa');
-select throws_ok($$ select public.admin_save_plan('{"key":"yy","name":"Y","stripe_price_id":"price_ABC12345","features":[]}') $$, 'P0001', 'admin.error.priceTaken', 'um preço do Stripe é de um plano só');
+select is((select count(*) from public.plans where key in ('pro', 'enterprise', 'free')), 3::bigint, 'Free, Pro e Enterprise existem');
+select is((select stripe_price_id from public.plans where key = 'pro'), null, 'o admin não grava o preço do Stripe: quem grava é a função');
+select lives_ok($$ select public.admin_save_plan('{"key":"yy","name":"Y","stripe_price_id":"price_ABC12345","stripe_product_id":"prod_ABC12345","features":[]}') $$, 'ids do Stripe no corpo não dão erro');
+select is((select stripe_price_id || stripe_product_id from public.plans where key = 'yy') is null, true, 'mas são ignorados também na criação');
+
+reset role;
+select set_config('request.jwt.claims', '', true);
+update public.plans set stripe_product_id = 'prod_PRO12345', stripe_price_id = 'price_PRO12345', stripe_synced_at = now() where key = 'pro';
+select pg_temp.as_user('00000000-0000-0000-0000-0000000000a1');
+select lives_ok($$ select public.admin_save_plan('{"key":"pro","name":"Pro","price_cents":4900,"currency":"brl","billing_interval":"month","features":["stats","secondOpinion"]}') $$, 'salvar o plano sem mudar nada');
+select is((select stripe_synced_at is not null from public.plans where key = 'pro'), true, 'não tira o plano do Stripe');
+select lives_ok($$ select public.admin_save_plan('{"key":"pro","name":"Pro","price_cents":5900,"currency":"brl","billing_interval":"month","features":["stats","secondOpinion"]}') $$, 'mudar o preço');
+select is((select stripe_price_id || stripe_product_id from public.plans where key = 'pro'), 'price_PRO12345prod_PRO12345', 'os ids do Stripe seguem os mesmos');
+select is((select stripe_synced_at from public.plans where key = 'pro'), null, 'mas o plano fica para ser enviado de novo');
 
 reset role;
 insert into public.subscriptions (user_id, plan_key, stripe_subscription_id, status) values ('00000000-0000-0000-0000-0000000000b2', 'pro', 'sub_1', 'active');

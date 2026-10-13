@@ -11,8 +11,10 @@ verify_jwt = false
 [functions.billing]
 verify_jwt = false
 
-# O Stripe não manda JWT: a função confere a assinatura do evento.
-[functions.stripe-webhook]
+# O Stripe não manda JWT: a função confere a assinatura do evento. (O
+# `stripe-webhook` é da integração do Stripe do painel do Supabase e não vem
+# deste repositório.)
+[functions.billing-webhook]
 verify_jwt = false
 
 # Os releases são públicos: o site, o atualizador do app e quem baixa um
