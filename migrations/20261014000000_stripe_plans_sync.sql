@@ -60,12 +60,17 @@ on conflict (key) do nothing;
 -- O que cada plano traz (pedido do dono do projeto): Free é bem limitado
 -- (o núcleo, que está em todo plano, mais a busca nos chats e na conversa);
 -- Pro traz tudo, menos as funções de organização; Enterprise traz tudo, com
--- as de organização.
+-- as de organização. Pro e Enterprise copiam do Free, ainda completo, o modo e o
+-- valor de partida de cada recurso, antes de o Free ser reduzido.
 insert into public.plan_features (plan_key, feature_key, mode, default_on)
-select 'enterprise', f.key, 'optional', true from public.features f where not f.core
+select 'enterprise', pf.feature_key, pf.mode, pf.default_on from public.plan_features pf
+join public.features f on f.key = pf.feature_key
+where pf.plan_key = 'free' and not f.core
 on conflict do nothing;
 insert into public.plan_features (plan_key, feature_key, mode, default_on)
-select 'pro', f.key, 'optional', true from public.features f where not f.core and f.key not in ('organizations', 'orgChat')
+select 'pro', pf.feature_key, pf.mode, pf.default_on from public.plan_features pf
+join public.features f on f.key = pf.feature_key
+where pf.plan_key = 'free' and not f.core and f.key not in ('organizations', 'orgChat')
 on conflict do nothing;
 delete from public.plan_features pf
 where pf.plan_key = 'free'
