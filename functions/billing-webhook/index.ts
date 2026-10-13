@@ -3,8 +3,12 @@
 // chegar fora de ordem — e grava `subscriptions` com a service role.
 //
 // No Stripe (Developers → Webhooks), o endpoint é
-// https://<projeto>.supabase.co/functions/v1/stripe-webhook com os eventos
+// https://<projeto>.supabase.co/functions/v1/billing-webhook com os eventos
 // checkout.session.completed e customer.subscription.created/updated/deleted.
+//
+// Não é o `stripe-webhook`: esse nome é da integração do Stripe do painel do
+// Supabase (Stripe Sync Engine, que espelha o Stripe no schema `stripe`) e
+// ela o reescreve. Este aqui é o que liga a assinatura à conta e ao plano.
 import { createClient } from "npm:@supabase/supabase-js@2";
 import Stripe from "npm:stripe@17";
 
@@ -31,7 +35,7 @@ async function sync(stripe: Stripe, id: string) {
   const subscription = await stripe.subscriptions.retrieve(id);
   const userId = await owner(subscription);
   if (!userId) {
-    console.error("stripe-webhook: assinatura sem conta", id);
+    console.error("billing-webhook: assinatura sem conta", id);
     return;
   }
   const item = subscription.items.data[0];
@@ -99,7 +103,7 @@ Deno.serve(async (request) => {
     }
   } catch (error) {
     // 500 faz o Stripe tentar de novo mais tarde.
-    console.error("stripe-webhook", event.type, error);
+    console.error("billing-webhook", event.type, error);
     return text(500, "sync failed");
   }
   return text(200, "ok");

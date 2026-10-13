@@ -16,13 +16,13 @@ $$;
 select is((select array_agg(key order by key) from public.features where core),
   array['adaptiveRouting','agentSessions','contextCache','entryGate','exitGate','secretRedaction','sensitiveFiles'], 'os recursos de núcleo');
 select is((select count(*) from public.plan_features where plan_key = 'free' and mode = 'locked'), 7::bigint, 'o plano que já existia ganha o núcleo travado');
-select is((select default_on from public.plan_features where plan_key = 'free' and feature_key = 'symbolIndex'), false, 'o índice de símbolos entra desligado, como na tela');
-select is((select default_on from public.plan_features where plan_key = 'free' and feature_key = 'answerRecall'), true, 'a resposta já dada entra ligada, como hoje');
+select is((select default_on from public.plan_features where plan_key = 'enterprise' and feature_key = 'symbolIndex'), false, 'o índice de símbolos entra desligado, como na tela');
+select is((select default_on from public.plan_features where plan_key = 'enterprise' and feature_key = 'answerRecall'), true, 'a resposta já dada entra ligada, como hoje');
 select throws_ok($$ update public.features set enabled = false where key = 'secretRedaction' $$, '23514', null, 'nem pelo SQL o núcleo desliga');
 
 select pg_temp.as_user('00000000-0000-0000-0000-0000000000b2');
 select is(public.my_features()->'locked', '["entryGate","exitGate","secretRedaction","sensitiveFiles","agentSessions","contextCache","adaptiveRouting"]'::jsonb, 'o núcleo vem travado');
-select is(public.my_features()->'defaults'->'symbolIndex', 'false'::jsonb, 'o valor de partida do opcional');
+select is(public.my_features()->'defaults'->'chatSearch', 'true'::jsonb, 'o valor de partida do opcional');
 select is(public.my_features()->'limits', '{"jevDailyLimit":null,"maxConcurrentTurns":1}'::jsonb, 'os limites do plano');
 select is(public.my_jev_daily_limit(), null::integer, 'sem limite próprio, vale o da função');
 
