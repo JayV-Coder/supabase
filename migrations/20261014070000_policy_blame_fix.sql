@@ -1,6 +1,8 @@
 -- v0.101.1: o aviso "a política de LLM da organização não deixa nenhum agente
 -- ou modelo" só aparece quando a política desligou mesmo algum; sem agente
--- ligado nas Configurações, o app diz o que falta. Só traduções.
+-- ligado nas Configurações, o app diz o que falta. A orientação dessa
+-- mensagem também diz onde ligar (app) e onde a organização permite (site).
+-- Só traduções.
 
 insert into public.translations (locale, key, value) values
   ('pt-BR', 'whatsNew.item.policyBlameFix.title', $json$"A organização deixa de levar a culpa quando nenhum agente está ligado"$json$::jsonb),
@@ -23,4 +25,17 @@ insert into public.translations (locale, key, value) values
   ('ru', 'whatsNew.item.policyBlameFix.detail', $json$"Запрос в проекте организации говорит, что политика LLM организации не оставила разрешённого агента или модели, только если политика действительно что-то отключила. В остальных случаях сообщение называет, чего не хватает (в настройках не включён ни один агент или модель)."$json$::jsonb),
   ('ja', 'whatsNew.item.policyBlameFix.detail', $json$"組織プロジェクトでのリクエストは、ポリシーが実際にエージェントまたはモデルをオフにしたときだけ、組織の LLM ポリシーが許可されたエージェントやモデルを残していないと表示します。それ以外では、足りないもの（設定でエージェントやモデルがオンになっていない）を表示します。"$json$::jsonb),
   ('de', 'whatsNew.item.policyBlameFix.detail', $json$"Eine Anfrage in einem Organisationsprojekt meldet nur dann, dass die LLM-Richtlinie der Organisation keinen erlaubten Agenten oder kein erlaubtes Modell übrig lässt, wenn die Richtlinie tatsächlich eines abgeschaltet hat. Sonst nennt die Meldung, was fehlt (kein Agent oder Modell in den Einstellungen eingeschaltet)."$json$::jsonb)
+on conflict (locale, key) do update set value = excluded.value;
+
+insert into public.translations (locale, key, value) values
+  ('pt-BR', 'guidance.policyFix', $json$"Abra as Configurações do app e ligue um agente e um modelo dele, escolhendo entre os que @{org} permite. Os owners e maintainers da organização definem isso no site do JayV, na aba Agentes e modelos da organização, e podem permitir os que você usa."$json$::jsonb),
+  ('en', 'guidance.policyFix', $json$"Open Settings in the app, turn on an agent and one of its models, picking from what @{org} allows. The organization's owners and maintainers set that on the JayV site, in the organization's Agents and models tab, and can allow the ones you use."$json$::jsonb),
+  ('es', 'guidance.policyFix', $json$"Abre Configuración en la app y activa un agente y uno de sus modelos, eligiendo entre los que @{org} permite. Los owners y maintainers de la organización lo definen en el sitio de JayV, en la pestaña Agentes y modelos de la organización, y pueden permitir los que usas."$json$::jsonb),
+  ('zh-CN', 'guidance.policyFix', $json$"在应用的设置中开启一个代理及其模型，从 @{org} 允许的范围中选择。组织的 owner 和 maintainer 在 JayV 网站的组织“代理和模型”标签页中设置这些，也可以允许你使用的那些。"$json$::jsonb),
+  ('hi', 'guidance.policyFix', $json$"ऐप की सेटिंग्स खोलें और एक एजेंट व उसका मॉडल चालू करें, उन्हीं में से जिन्हें @{org} अनुमति देता है। संगठन के owners और maintainers यह JayV साइट पर संगठन के “एजेंट और मॉडल” टैब में तय करते हैं और आपके उपयोग वाले को अनुमति दे सकते हैं।"$json$::jsonb),
+  ('ar', 'guidance.policyFix', $json$"افتح إعدادات التطبيق وشغّل وكيلًا ونموذجًا من نماذجه، من بين ما تسمح به @{org}. يحدد مالكو المؤسسة ومشرفوها ذلك في موقع JayV، في تبويب «الوكلاء والنماذج» للمؤسسة، ويمكنهم السماح بما تستخدمه."$json$::jsonb),
+  ('fr', 'guidance.policyFix', $json$"Ouvrez les Réglages de l'app et activez un agent et l'un de ses modèles, parmi ceux que @{org} autorise. Les owners et maintainers de l'organisation le définissent sur le site JayV, dans l'onglet Agents et modèles de l'organisation, et peuvent autoriser ceux que vous utilisez."$json$::jsonb),
+  ('ru', 'guidance.policyFix', $json$"Откройте Настройки в приложении и включите агента и одну из его моделей из тех, что разрешает @{org}. Owner и maintainer организации задают это на сайте JayV, на вкладке «Агенты и модели» организации, и могут разрешить нужные вам."$json$::jsonb),
+  ('ja', 'guidance.policyFix', $json$"アプリの設定を開き、@{org} が許可するものの中からエージェントとそのモデルをオンにしてください。組織の owner と maintainer が JayV サイトの組織の「エージェントとモデル」タブで設定でき、使っているものを許可することもできます。"$json$::jsonb),
+  ('de', 'guidance.policyFix', $json$"Öffne die Einstellungen in der App und schalte einen Agenten und eines seiner Modelle ein, aus dem, was @{org} erlaubt. Die Owner und Maintainer der Organisation legen das auf der JayV-Website im Tab Agenten und Modelle der Organisation fest und können die von dir genutzten erlauben."$json$::jsonb)
 on conflict (locale, key) do update set value = excluded.value;
