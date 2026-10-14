@@ -52,11 +52,11 @@ select is((select stripe_synced_at from public.plans where key = 'pro'), null, '
 reset role;
 insert into public.subscriptions (user_id, plan_key, stripe_subscription_id, status) values ('00000000-0000-0000-0000-0000000000b2', 'pro', 'sub_1', 'active');
 select pg_temp.as_user('00000000-0000-0000-0000-0000000000b2');
-select is(public.my_features() - 'locked' - 'defaults' - 'limits', '{"plan":"pro","admin":false,"features":["entryGate","exitGate","secretRedaction","sensitiveFiles","agentSessions","contextCache","adaptiveRouting","secondOpinion"]}'::jsonb, 'assinante recebe o plano dele, com o núcleo e sem o recurso desligado pelo admin');
+select is(public.my_features() - 'locked' - 'defaults' - 'limits', '{"plan":"pro","admin":false,"managed":true,"features":["secondOpinion"]}'::jsonb, 'assinante recebe exatamente o plano dele, sem o recurso desligado pelo admin');
 reset role;
 update public.subscriptions set status = 'canceled';
 select pg_temp.as_user('00000000-0000-0000-0000-0000000000b2');
-select is(public.my_features()->'features', '["entryGate","exitGate","secretRedaction","sensitiveFiles","agentSessions","contextCache","organizations","adaptiveRouting"]'::jsonb, 'assinatura cancelada volta ao padrão, com o núcleo');
+select is(public.my_features()->'features', '["organizations"]'::jsonb, 'assinatura cancelada volta ao padrão, com o que o admin deixou nele');
 select pg_temp.as_user('00000000-0000-0000-0000-0000000000a1');
 select throws_ok($$ select public.admin_delete_plan('pro') $$, 'P0001', 'admin.error.inUse', 'plano com assinatura não é apagado');
 
