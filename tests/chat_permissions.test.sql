@@ -3,7 +3,7 @@
 -- bloqueado (com quem bloqueia) em `my_project_policies`.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(10);
+select plan(15);
 
 insert into auth.users (id, email, email_confirmed_at, raw_user_meta_data) values
   ('00000000-0000-0000-0000-0000000000e1', 'dona@teste.local', now(), '{"user_name":"dona"}'),
@@ -47,6 +47,16 @@ select public.set_chat_permissions((select id from ids where name = 'acme'), '[]
 select is((select count(*)::int from public.organization_chat_permissions), 0, 'lista vazia apaga a linha');
 select pg_temp.as_user('00000000-0000-0000-0000-0000000000e2');
 select is((select count(*)::int from public.my_project_policies() where project_id = 'p-acme' and policy ? 'blocked_grants'), 0, 'sem bloqueio, a chave sai da política');
+
+-- v0.101.0: permissões sempre ligadas.
+select pg_temp.as_user('00000000-0000-0000-0000-0000000000e1');
+select public.set_chat_permissions((select id from ids where name = 'acme'), '["network"]', '["shell", "git"]');
+select is((select enabled from public.organization_chat_permissions), array['shell', 'git'], 'grava as sempre ligadas');
+select throws_ok($$select public.set_chat_permissions((select id from ids where name = 'acme'), '["git"]', '["git"]')$$, 'policy.invalid', 'a mesma permissão não é bloqueada e ligada');
+select throws_ok($$select public.set_chat_permissions((select id from ids where name = 'acme'), '[]', '["docker"]')$$, 'policy.invalid', 'só as três permissões do seletor, também nas ligadas');
+select pg_temp.as_user('00000000-0000-0000-0000-0000000000e2');
+select is((select policy->'enabled_grants' from public.my_project_policies() where project_id = 'p-acme'), '["git", "shell"]'::jsonb, 'o projeto recebe as sempre ligadas');
+select is((select policy->'grant_defaults'->'shell' from public.my_project_policies() where project_id = 'p-acme'), '["acme"]'::jsonb, 'cada uma diz quem a liga');
 
 select * from finish();
 rollback;
