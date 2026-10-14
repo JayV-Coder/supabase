@@ -1,7 +1,7 @@
 -- v0.60.0: recursos de núcleo, recursos travados por plano e limites do plano.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(21);
+select plan(25);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-0000000000a1', 'admin@teste.local'),
@@ -29,8 +29,14 @@ select is(public.my_jev_daily_limit(), null::integer, 'sem limite próprio, vale
 
 select pg_temp.as_user('00000000-0000-0000-0000-0000000000a1');
 select lives_ok($$ select public.admin_set_feature('secretRedaction', false) $$, 'o admin desliga até recurso de núcleo');
-select is(public.my_features()->'features' @> '"secretRedaction"'::jsonb, false, 'e ele sai da lista de quem usa');
+select is((public.my_features()->>'admin')::boolean, true, 'o admin se vê admin');
+select is(public.my_features()->'features' @> '"secretRedaction"'::jsonb, true, 'o admin tem o recurso mesmo desligado em Administração');
+select is(jsonb_array_length(public.my_features()->'features'), (select count(*)::int from public.features), 'o admin tem todos os recursos');
+select is(public.my_features()->'locked', '[]'::jsonb, 'e nada vem travado para ele');
+select pg_temp.as_user('00000000-0000-0000-0000-0000000000b2');
+select is(public.my_features()->'features' @> '"secretRedaction"'::jsonb, false, 'quem não é admin não o recebe');
 select is(public.my_features()->'managed', 'true'::jsonb, 'a lista do servidor vale sozinha, sem somar o núcleo');
+select pg_temp.as_user('00000000-0000-0000-0000-0000000000a1');
 select lives_ok($$ select public.admin_set_feature('secretRedaction', true) $$, 'ligar o que já está ligado não é erro');
 select lives_ok($$ select public.admin_save_plan('{"key":"team","name":"Team","stripe_price_id":"price_TEAM1234","price_cents":9900,"currency":"brl","billing_interval":"month","jev_daily_limit":2000,"max_concurrent_turns":3,"features":[{"key":"parallelTasks","mode":"locked"},{"key":"secondOpinion","mode":"optional","default_on":false},"stats"]}') $$, 'o plano novo com modos e limites');
 select is((select count(*) from public.plan_features where plan_key = 'team' and mode = 'locked'), 1::bigint, 'só entra o que o admin pôs: o núcleo fora da lista não é forçado');
