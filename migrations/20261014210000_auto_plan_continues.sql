@@ -1,0 +1,35 @@
+-- v0.101.4: no automático, o plano de um pedido de implementar segue para o
+-- desenvolvimento (aviso do plano aprovado e Novidades). Só traduções.
+
+insert into public.translations (locale, key, value) values
+  ('pt-BR', 'plan.autoApproved', $json$"Plano aprovado: executando em modo Desenvolvimento."$json$::jsonb),
+  ('pt-BR', 'whatsNew.item.autoPlanContinues.title', $json$"No automático, o Jev planeja e depois desenvolve"$json$::jsonb),
+  ('pt-BR', 'whatsNew.item.autoPlanContinues.detail', $json$"No Auto, quando o plano de algo que você pediu para implementar termina sem pergunta aberta, o Jev o aprova e leva o chat para Desenvolvimento. Se o plano faz perguntas, as respostas levam ao Desenvolvimento em vez de gerar outro plano. Fixado em Planejamento, ele continua somente leitura."$json$::jsonb),
+  ('en', 'plan.autoApproved', $json$"Plan approved: carrying it out in Development mode."$json$::jsonb),
+  ('en', 'whatsNew.item.autoPlanContinues.title', $json$"Auto mode now plans and then builds"$json$::jsonb),
+  ('en', 'whatsNew.item.autoPlanContinues.detail', $json$"In Auto, when a plan for something you asked to implement ends with no open question, Jev approves it and moves the chat to Development. If the plan asks questions, your answers move it to Development instead of producing another plan. Planning stays read-only when you pin it."$json$::jsonb),
+  ('es', 'plan.autoApproved', $json$"Plan aprobado: ejecutándolo en modo Desarrollo."$json$::jsonb),
+  ('es', 'whatsNew.item.autoPlanContinues.title', $json$"En automático, Jev planifica y luego desarrolla"$json$::jsonb),
+  ('es', 'whatsNew.item.autoPlanContinues.detail', $json$"En Auto, cuando el plan de algo que pediste implementar termina sin preguntas abiertas, Jev lo aprueba y lleva el chat a Desarrollo. Si el plan hace preguntas, tus respuestas llevan a Desarrollo en vez de generar otro plan. Fijado en Planificación, sigue en solo lectura."$json$::jsonb),
+  ('zh-CN', 'plan.autoApproved', $json$"计划已批准：正在开发模式下执行。"$json$::jsonb),
+  ('zh-CN', 'whatsNew.item.autoPlanContinues.title', $json$"自动模式现在先规划再开发"$json$::jsonb),
+  ('zh-CN', 'whatsNew.item.autoPlanContinues.detail', $json$"在自动模式下，当你要求实现的事项的计划结尾没有未决问题时，Jev 会批准计划并把聊天切换到开发模式。如果计划提出了问题，你的回答会进入开发模式，而不是再生成一份计划。固定为规划模式时仍然只读。"$json$::jsonb),
+  ('hi', 'plan.autoApproved', $json$"योजना स्वीकृत: डेवलपमेंट मोड में लागू की जा रही है।"$json$::jsonb),
+  ('hi', 'whatsNew.item.autoPlanContinues.title', $json$"ऑटो मोड अब पहले योजना बनाता है, फिर विकास करता है"$json$::jsonb),
+  ('hi', 'whatsNew.item.autoPlanContinues.detail', $json$"ऑटो में, जब आपके लागू करने के लिए कहे गए काम की योजना बिना किसी खुले प्रश्न के खत्म होती है, तो Jev उसे स्वीकृत करके चैट को डेवलपमेंट में ले जाता है। अगर योजना प्रश्न पूछती है, तो आपके उत्तर नई योजना बनाने की जगह डेवलपमेंट में ले जाते हैं। प्लानिंग पर पिन करने पर वह केवल-पढ़ने वाला ही रहता है।"$json$::jsonb),
+  ('ar', 'plan.autoApproved', $json$"تمت الموافقة على الخطة: يجري تنفيذها في وضع التطوير."$json$::jsonb),
+  ('ar', 'whatsNew.item.autoPlanContinues.title', $json$"الوضع التلقائي يخطط ثم يطوّر الآن"$json$::jsonb),
+  ('ar', 'whatsNew.item.autoPlanContinues.detail', $json$"في الوضع التلقائي، عندما تنتهي خطة لشيء طلبت تنفيذه دون سؤال مفتوح، يوافق Jev عليها وينقل المحادثة إلى التطوير. إذا طرحت الخطة أسئلة، تنقل إجاباتك المحادثة إلى التطوير بدل إنتاج خطة أخرى. عند تثبيت التخطيط يبقى للقراءة فقط."$json$::jsonb),
+  ('fr', 'plan.autoApproved', $json$"Plan approuvé : exécution en mode Développement."$json$::jsonb),
+  ('fr', 'whatsNew.item.autoPlanContinues.title', $json$"Le mode Auto planifie puis développe"$json$::jsonb),
+  ('fr', 'whatsNew.item.autoPlanContinues.detail', $json$"En Auto, quand le plan de ce que vous avez demandé d'implémenter se termine sans question ouverte, Jev l'approuve et passe la conversation en Développement. Si le plan pose des questions, vos réponses passent en Développement au lieu de produire un autre plan. Épinglé sur Planification, il reste en lecture seule."$json$::jsonb),
+  ('ru', 'plan.autoApproved', $json$"План утверждён: выполняется в режиме разработки."$json$::jsonb),
+  ('ru', 'whatsNew.item.autoPlanContinues.title', $json$"Авторежим теперь планирует, а затем разрабатывает"$json$::jsonb),
+  ('ru', 'whatsNew.item.autoPlanContinues.detail', $json$"В Авто, когда план того, что вы просили реализовать, заканчивается без открытого вопроса, Jev утверждает его и переводит чат в Разработку. Если план задаёт вопросы, ваши ответы ведут в Разработку, а не к новому плану. Закреплённое Планирование остаётся только для чтения."$json$::jsonb),
+  ('ja', 'plan.autoApproved', $json$"プランを承認しました。開発モードで実行します。"$json$::jsonb),
+  ('ja', 'whatsNew.item.autoPlanContinues.title', $json$"自動モードがプランしてから開発するようになりました"$json$::jsonb),
+  ('ja', 'whatsNew.item.autoPlanContinues.detail', $json$"自動モードで、実装を頼んだ内容のプランが未解決の質問なしで終わると、Jev がそれを承認してチャットを開発モードに切り替えます。プランが質問をした場合は、回答が新しいプランではなく開発モードにつながります。プランニングに固定した場合は読み取り専用のままです。"$json$::jsonb),
+  ('de', 'plan.autoApproved', $json$"Plan genehmigt: Ausführung im Entwicklungsmodus."$json$::jsonb),
+  ('de', 'whatsNew.item.autoPlanContinues.title', $json$"Der Auto-Modus plant jetzt und entwickelt dann"$json$::jsonb),
+  ('de', 'whatsNew.item.autoPlanContinues.detail', $json$"Im Auto-Modus genehmigt Jev den Plan für etwas, das du umsetzen lassen wolltest, wenn er ohne offene Frage endet, und schaltet den Chat auf Entwicklung. Stellt der Plan Fragen, führen deine Antworten in die Entwicklung statt zu einem weiteren Plan. Auf Planung festgelegt bleibt er schreibgeschützt."$json$::jsonb)
+on conflict (locale, key) do update set value = excluded.value;
