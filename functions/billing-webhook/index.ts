@@ -18,6 +18,13 @@ const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
+/** Um segredo do Stripe: do Vault (`public.stripe_secret`, só a service role
+ * chama) ou, se lá não houver, da variável de ambiente da função. */
+async function stripeSecret(name: string): Promise<string | undefined> {
+  const { data } = await admin.rpc("stripe_secret", { secret_name: name });
+  return (typeof data === "string" && data) || Deno.env.get(name) || undefined;
+}
+
 function text(status: number, body: string): Response {
   return new Response(body, { status, headers: { "Content-Type": "text/plain" } });
 }
@@ -71,8 +78,8 @@ async function sync(stripe: Stripe, id: string) {
 
 Deno.serve(async (request) => {
   if (request.method !== "POST") return text(405, "POST only");
-  const secret = Deno.env.get("STRIPE_SECRET_KEY");
-  const signing = Deno.env.get("STRIPE_WEBHOOK_SECRET");
+  const secret = await stripeSecret("STRIPE_SECRET_KEY");
+  const signing = await stripeSecret("STRIPE_WEBHOOK_SECRET");
   if (!secret || !signing) return text(503, "missing Stripe secrets");
   const stripe = new Stripe(secret);
 

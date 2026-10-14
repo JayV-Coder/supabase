@@ -11,12 +11,19 @@
 // Quem já tem assinatura valendo e pede checkout recebe o portal: uma conta
 // tem uma assinatura só. A assinatura em si só é gravada pelo `billing-webhook`.
 //
-// Segredos (Edge Functions → Secrets): STRIPE_SECRET_KEY. A chave nunca vai
-// para o app.
+// Segredo: STRIPE_SECRET_KEY, lida do Vault do Supabase (ou, na falta, dos
+// segredos das Edge Functions). A chave nunca vai para o app.
 import { createClient } from "npm:@supabase/supabase-js@2";
 import Stripe from "npm:stripe@17";
 
 const RETURNS = ["done", "cancel", "portal"];
+
+/** Um segredo do Stripe: do Vault (`public.stripe_secret`, só a service role
+ * chama) ou, se lá não houver, da variável de ambiente da função. */
+async function stripeSecret(admin: ReturnType<typeof createClient>, name: string): Promise<string | undefined> {
+  const { data } = await admin.rpc("stripe_secret", { secret_name: name });
+  return (typeof data === "string" && data) || Deno.env.get(name) || undefined;
+}
 const ENTITLED = ["active", "trialing", "past_due"];
 
 function reply(status: number, body: unknown): Response {
@@ -37,7 +44,12 @@ Deno.serve(async (request) => {
   }
   if (request.method !== "POST") return refuse(405, "method", "só GET e POST");
 
-  const secret = Deno.env.get("STRIPE_SECRET_KEY");
+  // A chave vem do Vault do Supabase (função `stripe_secret`, só da service
+  // role); sem ela lá, vale o segredo de mesmo nome das Edge Functions.
+  const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  const secret = await stripeSecret(admin, "STRIPE_SECRET_KEY");
   if (!secret) return refuse(503, "config", "a função está sem a chave do Stripe");
   const stripe = new Stripe(secret);
 
@@ -47,9 +59,6 @@ Deno.serve(async (request) => {
   // o da service role só grava o cliente do Stripe.
   const user = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, {
     global: { headers: { Authorization: `Bearer ${token}` } },
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-  const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
   let subject: string | undefined;
