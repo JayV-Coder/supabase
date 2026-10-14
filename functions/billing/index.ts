@@ -1,5 +1,6 @@
 // Pagamento dos planos pelo Stripe. Com o JWT do usuário:
-//   POST { action: "checkout", plan }  → { url }  página de pagamento do Stripe
+//   POST { action: "checkout", plan, country?, currency? }  → { url }  página de pagamento do Stripe,
+//        na moeda pedida ou na do país de quem paga (veja `plan_price_for`)
 //   POST { action: "portal" }          → { url }  portal para trocar cartão, plano ou cancelar
 //   POST { action: "sync_plan", plan }     → { productId, priceId }  (só admin) cria ou atualiza
 //        o produto e o preço do plano no Stripe, a partir do que o admin salvou no site
@@ -74,7 +75,7 @@ Deno.serve(async (request) => {
   }
   if (!subject) return refuse(401, "session", "sessão inválida ou expirada");
 
-  let input: { action?: unknown; plan?: unknown; productId?: unknown; priceId?: unknown };
+  let input: { action?: unknown; plan?: unknown; productId?: unknown; priceId?: unknown; country?: unknown; currency?: unknown };
   try {
     input = await request.json();
   } catch {
@@ -109,12 +110,13 @@ Deno.serve(async (request) => {
   type PlanRow = {
     key: string; name: string; description: string; active: boolean; is_default: boolean;
     price_cents: number | null; currency: string | null; billing_interval: "month" | "year" | null;
+    extra_prices: { currency: string; price_cents: number }[] | null;
     stripe_product_id: string | null; stripe_price_id: string | null;
   };
 
   async function loadPlan(key: string): Promise<PlanRow | Response> {
     const { data, error } = await admin.from("plans")
-      .select("key, name, description, active, is_default, price_cents, currency, billing_interval, stripe_product_id, stripe_price_id")
+      .select("key, name, description, active, is_default, price_cents, currency, billing_interval, extra_prices, stripe_product_id, stripe_price_id")
       .eq("key", key).maybeSingle();
     if (error) throw error;
     if (!data) return refuse(404, "plan", "plano desconhecido");
@@ -130,9 +132,10 @@ Deno.serve(async (request) => {
   }
 
   /** Envia o plano ao Stripe: um produto por plano (o gratuito também, sem
-   * preço) e, no plano à venda, um preço recorrente. Preço no Stripe não
-   * muda: se valor, moeda ou intervalo mudaram, cria um novo, põe-no como
-   * padrão do produto e arquiva o antigo. */
+   * preço) e, no plano à venda, um preço recorrente, com as outras moedas do
+   * plano em `currency_options`. Preço no Stripe não muda: se valor, moeda,
+   * intervalo ou as outras moedas mudaram, cria um novo, põe-no como padrão do
+   * produto e arquiva o antigo. */
   async function syncPlan(key: string): Promise<Response> {
     const plan = await loadPlan(key);
     if (plan instanceof Response) return plan;
@@ -145,16 +148,21 @@ Deno.serve(async (request) => {
     if (selling && (!plan.price_cents || !plan.currency || !plan.billing_interval)) {
       return refuse(422, "price", "defina preço, moeda e intervalo para vender o plano");
     }
+    const extras = Object.fromEntries((plan.extra_prices ?? []).map((item) => [item.currency, { unit_amount: item.price_cents }]));
     let priceId = plan.stripe_price_id;
     let retired: string | null = null;
     if (selling) {
-      const current = priceId ? await stripe.prices.retrieve(priceId).catch(() => null) : null;
+      const current = priceId ? await stripe.prices.retrieve(priceId, { expand: ["currency_options"] }).catch(() => null) : null;
+      const options = current?.currency_options ?? {};
       const same = current && current.active && current.product === productId && current.unit_amount === plan.price_cents
-        && current.currency === plan.currency && current.recurring?.interval === plan.billing_interval;
+        && current.currency === plan.currency && current.recurring?.interval === plan.billing_interval
+        && Object.keys(options).filter((code) => code !== current.currency).length === Object.keys(extras).length
+        && Object.entries(extras).every(([code, value]) => options[code]?.unit_amount === value.unit_amount);
       if (!same) {
         const created = await stripe.prices.create({
           product: productId, unit_amount: plan.price_cents!, currency: plan.currency!,
           recurring: { interval: plan.billing_interval! }, metadata: { plan_key: plan.key },
+          ...(Object.keys(extras).length > 0 ? { currency_options: extras } : {}),
         });
         await stripe.products.update(productId, { default_price: created.id });
         retired = priceId;
@@ -219,8 +227,16 @@ Deno.serve(async (request) => {
     // recebeu — o preço que ele cobraria não é o que a página mostra.
     if (!plan || !plan.active || !plan.stripe_price_id || !plan.stripe_synced_at) return refuse(422, "plan", "plano sem preço no Stripe, desatualizado ou inativo");
 
+    // A moeda: a que a pessoa escolheu ou a do país dela, entre as que o plano
+    // vende (`plan_price_for`); sem resposta, a do preço padrão do Stripe.
+    const country = typeof input.country === "string" && /^[A-Za-z]{2}$/.test(input.country) ? input.country : null;
+    const wanted = typeof input.currency === "string" && /^[A-Za-z]{3}$/.test(input.currency) ? input.currency.toLowerCase() : null;
+    const { data: chosen } = await user.rpc("plan_price_for", { plan_key: plan.key, country, wanted });
+    const currency = (chosen as { currency?: string } | null)?.currency;
+
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
+      ...(currency ? { currency } : {}),
       customer: await customer(),
       client_reference_id: subject,
       line_items: [{ price: plan.stripe_price_id, quantity: 1 }],
