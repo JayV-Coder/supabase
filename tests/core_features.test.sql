@@ -32,7 +32,7 @@ select lives_ok($$ select public.admin_set_feature('secretRedaction', false) $$,
 select is((public.my_features()->>'admin')::boolean, true, 'o admin se vê admin');
 select is(public.my_features()->'features' @> '"secretRedaction"'::jsonb, true, 'o admin tem o recurso mesmo desligado em Administração');
 select is(jsonb_array_length(public.my_features()->'features'), (select count(*)::int from public.features), 'o admin tem todos os recursos');
-select is(public.my_features()->'locked', '[]'::jsonb, 'e nada vem travado para ele');
+select is(public.my_features()->'locked', '["keepSessionModel","limitResume","planBuildSession","autoTurnCeiling"]'::jsonb, 'só as quatro opções embutidas do Jev vêm travadas para ele');
 select pg_temp.as_user('00000000-0000-0000-0000-0000000000b2');
 select is(public.my_features()->'features' @> '"secretRedaction"'::jsonb, false, 'quem não é admin não o recebe');
 select is(public.my_features()->'managed', 'true'::jsonb, 'a lista do servidor vale sozinha, sem somar o núcleo');
