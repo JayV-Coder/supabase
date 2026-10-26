@@ -3,7 +3,7 @@
 -- quem a faz) em `my_project_policies`, unida entre as organizações.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(14);
+select plan(13);
 
 insert into auth.users (id, email, email_confirmed_at, raw_user_meta_data) values
   ('00000000-0000-0000-0000-0000000000f1', 'dona@teste.local', now(), '{"user_name":"dona"}'),
