@@ -24,7 +24,7 @@ update public.features set enabled = true where key = 'secretRedaction';
 select pg_temp.as_user('00000000-0000-0000-0000-0000000000b2');
 select is(public.my_features()->'locked', '["entryGate","exitGate","secretRedaction","sensitiveFiles","agentSessions","contextCache","adaptiveRouting"]'::jsonb, 'o núcleo vem travado');
 select is(public.my_features()->'defaults'->'chatSearch', 'true'::jsonb, 'o valor de partida do opcional');
-select is(public.my_features()->'limits', '{"jevDailyLimit":null,"maxConcurrentTurns":1}'::jsonb, 'os limites do plano');
+select is(public.my_features()->'limits', '{"jevDailyLimit":null,"maxConcurrentTurns":1,"jevDailyRequests":20}'::jsonb, 'os limites do plano (o Free tem 20 pedidos por dia com o Jev, v0.110.0)');
 select is(public.my_jev_daily_limit(), null::integer, 'sem limite próprio, vale o da função');
 
 select pg_temp.as_user('00000000-0000-0000-0000-0000000000a1');
