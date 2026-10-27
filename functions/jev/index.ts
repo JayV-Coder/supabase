@@ -21,6 +21,9 @@ const UPSTREAM_TIMEOUT_MS = Number.isFinite(configuredTimeout) && configuredTime
 const QUESTIONS_TTL_MS = 5 * 60_000;
 // O id da chamada que o app repete igual em cada tentativa (`x-jev-request`).
 const REQUEST_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// O turno (pedido) da chamada (`x-jev-turn`, app 0.110.0): o teto do plano em
+// pedidos conta turnos distintos, e as chamadas de um pedido entram uma vez.
+const TURN_ID = /^[A-Za-z0-9_-]{1,64}$/;
 
 type Row = { id: string; body: unknown };
 const questionsCache = new Map<string, { at: number; rows: Row[] }>();
@@ -78,12 +81,15 @@ Deno.serve(async (request) => {
   const include = Array.isArray(input.include) ? input.include.map(String) : null;
   const sent = request.headers.get("x-jev-request") ?? "";
   const requestId = REQUEST_ID.test(sent) ? sent.toLowerCase() : null;
+  const turnSent = request.headers.get("x-jev-turn") ?? "";
+  const turnId = TURN_ID.test(turnSent) ? turnSent : null;
 
   // A conta, o limite do plano e as perguntas não dependem um do outro: saem
   // juntos.
-  const [counted, planLimit, questionRows] = await Promise.all([
+  const [counted, planLimit, requestLimit, questionRows] = await Promise.all([
     requestId ? supabase.rpc("jev_count_call", { request: requestId }) : supabase.rpc("jev_count_call"),
     supabase.rpc("my_jev_daily_limit"),
+    supabase.rpc("my_jev_request_limit"),
     readQuestions(supabase, set),
   ]);
   const { data: used, error: counting } = counted;
@@ -95,7 +101,7 @@ Deno.serve(async (request) => {
   // O plano pode ter limite próprio; sem ele (ou sem a migração), vale o da função.
   const ownLimit = Number(planLimit.error ? null : planLimit.data);
   const limit = Number.isInteger(ownLimit) && ownLimit > 0 ? ownLimit : DAILY_LIMIT;
-  const calls = { "X-Jev-Calls-Used": String(used), "X-Jev-Daily-Limit": String(limit) };
+  const calls: Record<string, string> = { "X-Jev-Calls-Used": String(used), "X-Jev-Daily-Limit": String(limit) };
   if (Number(used) > limit) return reply(429, { error: "limite diário do Jev atingido", code: "daily_limit" }, calls);
 
   // A chamada que não valeu volta para o limite do dia; com id, só uma vez.
@@ -103,6 +109,25 @@ Deno.serve(async (request) => {
     const { error } = requestId ? await supabase.rpc("jev_refund_call", { request: requestId }) : await supabase.rpc("jev_refund_call");
     if (error) console.error("jev: não devolveu a chamada", error.message);
   };
+
+  // O teto em pedidos do plano (o Free: 20 por dia). Sem turno (app antigo) ou
+  // sem a migração, vale só o limite em chamadas. O pedido que passa do teto
+  // devolve a chamada e é recusado como o limite diário: o app usa a
+  // heurística local até a meia-noite UTC.
+  const ownRequests = Number(requestLimit.error ? null : requestLimit.data);
+  if (turnId && Number.isInteger(ownRequests) && ownRequests > 0) {
+    const { data: requests, error: countingTurn } = await supabase.rpc("jev_count_turn", { turn: turnId });
+    if (!countingTurn) {
+      calls["X-Jev-Requests-Used"] = String(requests);
+      calls["X-Jev-Request-Limit"] = String(ownRequests);
+      if (Number(requests) > ownRequests) {
+        await refund();
+        return reply(429, { error: "limite diário de pedidos do Jev atingido", code: "daily_limit" }, calls);
+      }
+    } else {
+      console.error("jev: não contou o pedido", countingTurn.message);
+    }
+  }
 
   if (questionRows.error) {
     await refund();
