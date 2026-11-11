@@ -1,0 +1,94 @@
+-- Helpers de teste para simular usuários e a Organização ativa (claims do JWT).
+-- Incluído pelos testes com `\ir ../helpers/tenancy.psql`; tudo é desfeito no rollback do teste.
+create extension if not exists pgtap with schema extensions;
+
+create schema if not exists tests;
+grant usage on schema tests to anon, authenticated;
+
+create or replace function tests.create_user(user_id uuid, email text, metadata jsonb default '{}')
+returns uuid
+language plpgsql
+as $$
+begin
+  insert into auth.users (id, instance_id, aud, role, email, email_confirmed_at, raw_app_meta_data, raw_user_meta_data, created_at, updated_at)
+  values (user_id, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', email, now(), '{}', metadata, now(), now());
+  return user_id;
+end;
+$$;
+
+-- Organização compartilhada com o jayv-coder, habilitada no Doctor.
+create or replace function tests.create_tenant(tenant_id uuid, slug text)
+returns uuid
+language plpgsql
+as $$
+begin
+  insert into public.organizations (id, name, slug)
+  values (tenant_id, initcap(replace(slug, '-', ' ')), slug);
+  insert into doctor.tenants (id) values (tenant_id);
+  return tenant_id;
+end;
+$$;
+
+-- Vínculo em public e Papel no Doctor.
+create or replace function tests.add_member(tenant_id uuid, user_id uuid, doctor_role text)
+returns void
+language plpgsql
+as $$
+begin
+  insert into public.organization_members (org_id, user_id, role)
+  values (tenant_id, user_id, case doctor_role when 'owner' then 'owner' else 'member' end);
+  insert into doctor.memberships (tenant_id, user_id, role) values (tenant_id, user_id, doctor_role);
+end;
+$$;
+
+-- Passa a agir como `authenticated`, com as claims que o Custom Access Token Hook emite.
+-- `aal` é o nível de garantia da sessão: aal2 depois de verificar o MFA.
+create or replace function tests.authenticate_as(
+  user_id uuid, tenant_id uuid, tenant_role text, aal text default 'aal1'
+)
+returns void
+language plpgsql
+as $$
+begin
+  perform set_config('request.jwt.claims', json_build_object(
+    'sub', user_id, 'role', 'authenticated', 'aud', 'authenticated', 'aal', aal,
+    'tenant_id', tenant_id, 'tenant_role', tenant_role
+  )::text, true);
+  perform set_config('role', 'authenticated', true);
+end;
+$$;
+
+-- Usuário autenticado sem Organização ativa (claims de tenant ausentes).
+create or replace function tests.authenticate_without_tenant(user_id uuid)
+returns void
+language plpgsql
+as $$
+begin
+  perform set_config('request.jwt.claims', json_build_object(
+    'sub', user_id, 'role', 'authenticated', 'aud', 'authenticated'
+  )::text, true);
+  perform set_config('role', 'authenticated', true);
+end;
+$$;
+
+create or replace function tests.authenticate_as_anon()
+returns void
+language plpgsql
+as $$
+begin
+  perform set_config('request.jwt.claims', '{"role": "anon"}', true);
+  perform set_config('role', 'anon', true);
+end;
+$$;
+
+create or replace function tests.clear_authentication()
+returns void
+language plpgsql
+as $$
+begin
+  perform set_config('request.jwt.claims', '', true);
+  reset role;
+end;
+$$;
+
+grant execute on all functions in schema tests to anon, authenticated;
