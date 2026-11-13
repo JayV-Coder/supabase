@@ -86,6 +86,10 @@ begin
   insert into doctor.agents (tenant_id, integration_id, name, status, secret_hash, public_key)
   values (t, integration, 'Agente', 'active', encode(sha256(('agente' || t::text)::bytea), 'hex'),
     repeat('A', 43) || '=');
+  insert into doctor.sso_connections (tenant_id, metadata_url) values (t, 'https://idp.test/metadata');
+  insert into doctor.sso_domains (tenant_id, domain) values (t, 'd' || replace(t::text, '-', '') || '.test');
+  insert into doctor.sso_group_roles (tenant_id, group_name, role) values (t, 'AID-Admins', 'admin');
+  insert into doctor.sso_scim_users (tenant_id, user_name) values (t, 'ana@' || t::text || '.test');
   insert into doctor.local_ai_settings (tenant_id, transport, endpoint_url, model)
   values (t, 'private_endpoint', 'https://llm.interno.test/v1', 'llama');
   insert into doctor.local_llm_requests (tenant_id, agent_id, request)
