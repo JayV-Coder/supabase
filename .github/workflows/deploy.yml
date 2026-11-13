@@ -60,7 +60,9 @@ jobs:
       - name: Separar as migrations do Doctor
         run: |
           mkdir -p "$RUNNER_TEMP/doctor-migrations"
-          mv supabase/migrations/*_doctor_*.sql "$RUNNER_TEMP/doctor-migrations/"
+          for file in supabase/migrations/*.sql; do
+            if basename "$file" | grep -qE '^[0-9]+_doctor_'; then mv "$file" "$RUNNER_TEMP/doctor-migrations/"; fi
+          done
 
       - name: Aplicar migrations
         run: supabase db push --linked --yes

@@ -43,6 +43,24 @@ jobs:
             exit 1
           fi
 
+      # Migration do Doctor é a que tem `_doctor_` logo depois do carimbo: só ela
+      # mexe no schema `doctor`, e é ela que o deploy deixa fora do `db push`. Uma
+      # que mexe no schema sem ter o nome iria para o `db push`.
+      - name: Nomes das migrations do Doctor
+        run: |
+          bad=""
+          for file in supabase/migrations/*.sql; do
+            name=$(basename "$file")
+            if echo "$name" | grep -qE '^[0-9]+_doctor_'; then continue; fi
+            if grep -qiE '\b(schema|table|function|procedure|view|index|trigger|into|from|update|join|on)[[:space:]]+(if[[:space:]]+(not[[:space:]]+)?exists[[:space:]]+)?doctor\b' "$file"; then
+              bad="$bad $name"
+            fi
+          done
+          if [ -n "$bad" ]; then
+            echo "::error::Mexem no schema doctor sem o nome <carimbo>_doctor_<nome>.sql:$bad"
+            exit 1
+          fi
+
       # Baixa a CLI direto do release, sem ação de terceiros.
       - name: Instalar a Supabase CLI
         if: env.SUPABASE_ACCESS_TOKEN != ''
@@ -56,7 +74,9 @@ jobs:
         if: env.SUPABASE_ACCESS_TOKEN != ''
         run: |
           mkdir -p "$RUNNER_TEMP/doctor-migrations"
-          mv supabase/migrations/*_doctor_*.sql "$RUNNER_TEMP/doctor-migrations/"
+          for file in supabase/migrations/*.sql; do
+            if basename "$file" | grep -qE '^[0-9]+_doctor_'; then mv "$file" "$RUNNER_TEMP/doctor-migrations/"; fi
+          done
           supabase link --project-ref "$(sed -n 's/^project_id *= *"\(.*\)"/\1/p' supabase/config.toml)"
           supabase db push --linked --dry-run
 
