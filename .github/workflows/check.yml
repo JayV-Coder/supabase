@@ -51,9 +51,12 @@ jobs:
             | sudo tar -xz -C /usr/local/bin supabase supabase-go
           supabase --version
 
+      # Igual ao deploy: as migrations do Doctor não passam pelo `db push`.
       - name: Simular o deploy
         if: env.SUPABASE_ACCESS_TOKEN != ''
         run: |
+          mkdir -p "$RUNNER_TEMP/doctor-migrations"
+          mv supabase/migrations/*_doctor_*.sql "$RUNNER_TEMP/doctor-migrations/"
           supabase link --project-ref "$(sed -n 's/^project_id *= *"\(.*\)"/\1/p' supabase/config.toml)"
           supabase db push --linked --dry-run
 

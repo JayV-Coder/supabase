@@ -54,6 +54,14 @@ jobs:
         run: supabase link --project-ref "$(sed -n 's/^project_id *= *"\(.*\)"/\1/p' supabase/config.toml)"
 
       # Primeiro o banco: as functions novas podem depender do esquema novo.
+      # As migrations do Doctor (`_doctor_` no nome) são aplicadas pelo script do
+      # jayv-doctor e registradas em `doctor.schema_migrations` (ADR-0009): fora
+      # do `db push`, que não deve tentar recriar o schema `doctor`.
+      - name: Separar as migrations do Doctor
+        run: |
+          mkdir -p "$RUNNER_TEMP/doctor-migrations"
+          mv supabase/migrations/*_doctor_*.sql "$RUNNER_TEMP/doctor-migrations/"
+
       - name: Aplicar migrations
         run: supabase db push --linked --yes
 
