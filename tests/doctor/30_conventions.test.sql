@@ -106,7 +106,7 @@ select is(
 select is(
   (select array_agg(p.proname::text order by p.proname) from pg_proc p
    where p.pronamespace = 'doctor'::regnamespace and has_function_privilege('anon', p.oid, 'execute')),
-  array['accept_agent_batch', 'accept_ingestion_batch', 'agent_seen', 'claim_local_llm', 'finish_local_llm', 'jira_hook', 'open_report_share', 'record_report_share_access', 'register_agent', 'resolve_agent', 'resolve_ingestion_token', 'scim_delete_user', 'scim_set_active', 'scim_upsert_user', 'scim_users', 'servicenow_hook', 'sso_discover'],
+  array['accept_agent_batch', 'accept_ingestion_batch', 'agent_seen', 'claim_local_llm', 'finish_local_llm', 'jira_hook', 'open_report_share', 'record_report_share_access', 'register_agent', 'resolve_agent', 'resolve_ingestion_token', 'scim_delete_user', 'scim_set_active', 'scim_upsert_user', 'scim_user_count', 'scim_users', 'servicenow_hook', 'sso_discover'],
   'anon só executa as funções por token (ingestão, link do Relatório, agente, modelo local, webhooks de ITSM, SCIM e descoberta do SSO)'
 );
 

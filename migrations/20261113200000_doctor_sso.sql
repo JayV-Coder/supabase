@@ -28,16 +28,19 @@ comment on table doctor.sso_connections is 'Conexão SAML 2.0 da Organização c
 create table doctor.sso_domains (
   id uuid primary key default gen_random_uuid(),
   tenant_id uuid not null references doctor.tenants (id) on delete cascade,
-  -- Um domínio é de uma Organização só.
-  domain text not null unique
+  -- Um domínio verificado é de uma Organização só (índice parcial abaixo). Sem verificar,
+  -- cadastrar não reserva nada: senão qualquer um travaria o domínio dos outros.
+  domain text not null
     check (domain ~ '^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$' and char_length(domain) <= 253),
   -- Vai no TXT `_aid-sso.<domínio>` como `aid-sso=<token>`.
   token text not null default encode(gen_random_bytes(16), 'hex'),
   verified_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  unique (tenant_id, id)
+  unique (tenant_id, id),
+  unique (tenant_id, domain)
 );
+create unique index sso_domains_verified_domain_key on doctor.sso_domains (domain) where verified_at is not null;
 comment on table doctor.sso_domains is 'Domínio de e-mail da Organização no SSO, verificado por TXT de DNS.';
 
 create table doctor.sso_group_roles (
@@ -167,10 +170,15 @@ set search_path = ''
 as $$
 declare
   tenant uuid := doctor.require_sso_owner();
+  clean text := lower(btrim(add_sso_domain.domain));
   created uuid;
 begin
-  insert into doctor.sso_domains (tenant_id, domain) values (tenant, lower(btrim(add_sso_domain.domain)))
-  on conflict on constraint sso_domains_domain_key do nothing
+  if exists (select 1 from doctor.sso_domains d
+      where d.domain = clean and d.verified_at is not null and d.tenant_id <> tenant) then
+    raise exception 'domínio já verificado por outra Organização' using errcode = 'DR100';
+  end if;
+  insert into doctor.sso_domains (tenant_id, domain) values (tenant, clean)
+  on conflict on constraint sso_domains_tenant_id_domain_key do nothing
   returning id into created;
   if created is null then
     raise exception 'domínio já cadastrado' using errcode = 'DR100';
@@ -274,26 +282,36 @@ as $$
     where c.tenant_id = doctor.current_tenant_id() and c.scim_token_hash is not null)
 $$;
 
-create function doctor.mark_sso_domain(target uuid, verified boolean)
-returns void
-language sql
+create function doctor.mark_sso_domain(target uuid)
+returns boolean
+language plpgsql
 security definer
 set search_path = ''
 as $$
-  update doctor.sso_domains d set verified_at = case when verified then coalesce(d.verified_at, now()) end
-  where d.id = target
+begin
+  -- Só verifica, nunca desfaz: uma consulta de DNS que falhou não desliga o SSO de ninguém.
+  update doctor.sso_domains d set verified_at = coalesce(d.verified_at, now()) where d.id = target;
+  return found;
+exception when unique_violation then
+  -- Outra Organização já provou o mesmo domínio.
+  return false;
+end;
 $$;
 
 create function doctor.set_sso_provider(connection uuid, provider uuid, status text, error text)
-returns void
-language sql
+returns boolean
+language plpgsql
 security definer
 set search_path = ''
 as $$
+begin
   update doctor.sso_connections c
   set provider_id = coalesce(set_sso_provider.provider, c.provider_id), status = set_sso_provider.status,
     last_error = left(set_sso_provider.error, 500)
-  where c.id = connection
+  where c.id = connection;
+  -- Falso: o Owner desligou o SSO enquanto a plataforma registrava. Quem chamou remove o provedor.
+  return found;
+end;
 $$;
 
 -- Login: o e-mail é de um domínio com SSO? (anon, antes de entrar).
@@ -335,6 +353,8 @@ declare
   email text;
   groups jsonb;
   chosen text;
+  existing text;
+  has_mapping boolean;
 begin
   select (a ->> 'provider')::uuid into idp
   from jsonb_array_elements(coalesce(auth.jwt() -> 'amr', '[]')) a
@@ -353,21 +373,31 @@ begin
       where s.tenant_id = found_connection.tenant_id and s.user_name = email and not s.active) then
     raise exception 'desativado no IdP' using errcode = 'DR104';
   end if;
+  -- Os grupos vêm da identidade do provedor, que só o Auth grava no login pelo IdP. O
+  -- `raw_user_meta_data` fica de fora: o próprio Usuário escreve nele (`auth.updateUser`).
   select coalesce(
       (select i.identity_data -> 'custom_claims' -> 'groups' from auth.identities i
         where i.user_id = me and i.provider = 'sso:' || idp::text limit 1),
-      (select u.raw_user_meta_data -> 'custom_claims' -> 'groups' from auth.users u where u.id = me),
       '[]'::jsonb)
   into groups;
   if jsonb_typeof(groups) = 'string' then
     groups := jsonb_build_array(groups);
   end if;
-  select g.role into chosen
-  from doctor.sso_group_roles g
-  where g.tenant_id = found_connection.tenant_id
-    and jsonb_typeof(groups) = 'array' and groups ? g.group_name
-  order by doctor.sso_rank(g.role) desc limit 1;
-  chosen := coalesce(chosen, found_connection.default_role);
+  select m.role into existing from doctor.memberships m
+  where m.tenant_id = found_connection.tenant_id and m.user_id = me;
+  has_mapping := exists (
+    select 1 from doctor.sso_group_roles g where g.tenant_id = found_connection.tenant_id);
+  if not has_mapping and existing is not null then
+    -- Sem nenhum grupo mapeado, o IdP não manda nos Papéis: o que foi dado na tela fica.
+    chosen := existing;
+  else
+    select g.role into chosen
+    from doctor.sso_group_roles g
+    where g.tenant_id = found_connection.tenant_id
+      and jsonb_typeof(groups) = 'array' and groups ? g.group_name
+    order by doctor.sso_rank(g.role) desc limit 1;
+    chosen := coalesce(chosen, found_connection.default_role);
+  end if;
   if chosen is null then
     -- Saiu dos grupos mapeados: perde o Vínculo (o Owner, atribuído na tela, fica). Sem
     -- exceção aqui: ela desfaria a remoção. Quem chama lê "nenhuma linha" como sem acesso.
@@ -378,12 +408,18 @@ begin
     where m.tenant_id = found_connection.tenant_id and m.user_id = me;
     return;
   end if;
-  insert into public.organization_members (org_id, user_id, role)
-  values (found_connection.tenant_id, me, 'member') on conflict do nothing;
-  insert into doctor.memberships (tenant_id, user_id, role)
-  values (found_connection.tenant_id, me, chosen)
-  on conflict on constraint memberships_tenant_id_user_id_key do update
-  set role = case when doctor.memberships.role = 'owner' then 'owner' else excluded.role end;
+  if existing is null then
+    -- Gente nova ocupa vaga: o gatilho de cota do plano vale aqui (DR051).
+    insert into public.organization_members (org_id, user_id, role)
+    values (found_connection.tenant_id, me, 'member') on conflict do nothing;
+    insert into doctor.memberships (tenant_id, user_id, role)
+    values (found_connection.tenant_id, me, chosen);
+  elsif existing not in ('owner', chosen) then
+    -- `update`, não `insert ... on conflict`: este dispararia o gatilho de cota para quem já
+    -- tem vaga, e ninguém entraria com a Organização no limite.
+    update doctor.memberships m set role = chosen
+    where m.tenant_id = found_connection.tenant_id and m.user_id = me;
+  end if;
   insert into doctor.user_active_tenant (user_id, tenant_id)
   values (me, found_connection.tenant_id)
   on conflict on constraint user_active_tenant_pkey do update set tenant_id = excluded.tenant_id;
@@ -449,7 +485,11 @@ declare
     where d.tenant_id = tenant and d.verified_at is not null
       and d.domain = split_part(scim_revoke.user_name, '@', 2));
 begin
-  for target in select u.id from auth.users u where lower(u.email) = scim_revoke.user_name loop
+  -- Pelo índice `users_instance_id_email_idx` do Auth: a tabela é do projeto inteiro.
+  for target in
+    select u.id from auth.users u
+    where u.instance_id = '00000000-0000-0000-0000-000000000000' and lower(u.email) = scim_revoke.user_name
+  loop
     delete from doctor.memberships m
     where m.tenant_id = tenant and m.user_id = target and m.role <> 'owner';
     if not found then
@@ -514,7 +554,9 @@ begin
 end;
 $$;
 
-create function doctor.scim_users(token_hash text, filter_name text, target uuid)
+create function doctor.scim_users(
+  token_hash text, filter_name text, target uuid, page_offset integer, page_size integer
+)
 returns table (id uuid, user_name text, external_id text, active boolean, created_at timestamptz, updated_at timestamptz)
 language plpgsql
 stable
@@ -533,7 +575,29 @@ begin
   where s.tenant_id = tenant
     and (scim_users.filter_name is null or s.user_name = lower(scim_users.filter_name))
     and (scim_users.target is null or s.id = scim_users.target)
-  order by s.created_at limit 200;
+  order by s.created_at, s.id
+  offset greatest(page_offset, 0) limit least(greatest(page_size, 0), 200);
+end;
+$$;
+
+-- O `totalResults` do SCIM: o IdP reconcilia a lista inteira, página por página.
+create function doctor.scim_user_count(token_hash text, filter_name text)
+returns bigint
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $$
+declare
+  tenant uuid := doctor.scim_connection(token_hash);
+begin
+  if tenant is null then
+    raise exception 'token SCIM inválido' using errcode = 'DR106';
+  end if;
+  return (
+    select count(*) from doctor.sso_scim_users s
+    where s.tenant_id = tenant
+      and (scim_user_count.filter_name is null or s.user_name = lower(scim_user_count.filter_name)));
 end;
 $$;
 
@@ -561,7 +625,10 @@ begin
 
   -- O Owner fica de fora: se o IdP cair, é ele quem entra por senha (com MFA) e desliga a regra.
   if active_tenant is not null and active_role <> 'owner' and exists (
-      select 1 from doctor.sso_connections c where c.tenant_id = active_tenant and c.require_sso) then
+      -- Só com o provedor ativo: pendente ou com erro, o SSO não funciona, e bloquear a senha
+      -- deixaria a Organização inteira sem entrar.
+      select 1 from doctor.sso_connections c
+      where c.tenant_id = active_tenant and c.require_sso and c.status = 'active') then
     select lower(u.email) into user_email from auth.users u where u.id = (event ->> 'user_id')::uuid;
     if exists (
         select 1 from doctor.sso_domains d
@@ -595,7 +662,7 @@ revoke all on function doctor.set_sso_groups(jsonb) from public, anon, service_r
 revoke all on function doctor.set_scim_token(text) from public, anon, service_role;
 revoke all on function doctor.sso_scim_enabled() from public, anon, service_role;
 grant execute on function doctor.sso_scim_enabled() to authenticated;
-revoke all on function doctor.mark_sso_domain(uuid, boolean) from public, anon, authenticated;
+revoke all on function doctor.mark_sso_domain(uuid) from public, anon, authenticated;
 revoke all on function doctor.set_sso_provider(uuid, uuid, text, text) from public, anon, authenticated;
 revoke all on function doctor.sso_discover(text) from public, service_role;
 revoke all on function doctor.sso_rank(text) from public, anon, authenticated;
@@ -606,7 +673,8 @@ revoke all on function doctor.scim_upsert_user(text, text, text, boolean) from p
 revoke all on function doctor.scim_revoke(uuid, text) from public, anon, authenticated, service_role;
 revoke all on function doctor.scim_set_active(text, uuid, boolean) from public, authenticated, service_role;
 revoke all on function doctor.scim_delete_user(text, uuid) from public, authenticated, service_role;
-revoke all on function doctor.scim_users(text, text, uuid) from public, authenticated, service_role;
+revoke all on function doctor.scim_users(text, text, uuid, integer, integer) from public, authenticated, service_role;
+revoke all on function doctor.scim_user_count(text, text) from public, authenticated, service_role;
 grant execute on function doctor.configure_sso(text, boolean, text) to authenticated;
 grant execute on function doctor.disable_sso() to authenticated;
 grant execute on function doctor.add_sso_domain(text) to authenticated;
@@ -615,10 +683,11 @@ grant execute on function doctor.remove_sso_domain(uuid) to authenticated;
 grant execute on function doctor.set_sso_groups(jsonb) to authenticated;
 grant execute on function doctor.set_scim_token(text) to authenticated;
 grant execute on function doctor.sso_provision() to authenticated;
-grant execute on function doctor.mark_sso_domain(uuid, boolean) to service_role;
+grant execute on function doctor.mark_sso_domain(uuid) to service_role;
 grant execute on function doctor.set_sso_provider(uuid, uuid, text, text) to service_role;
 grant execute on function doctor.sso_discover(text) to anon, authenticated;
 grant execute on function doctor.scim_upsert_user(text, text, text, boolean) to anon;
 grant execute on function doctor.scim_set_active(text, uuid, boolean) to anon;
 grant execute on function doctor.scim_delete_user(text, uuid) to anon;
-grant execute on function doctor.scim_users(text, text, uuid) to anon;
+grant execute on function doctor.scim_users(text, text, uuid, integer, integer) to anon;
+grant execute on function doctor.scim_user_count(text, text) to anon;
