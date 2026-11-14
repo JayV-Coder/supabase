@@ -105,7 +105,7 @@ select is(
 
 select results_eq(
   $$select p.proname::text collate "default" from pg_proc p where p.pronamespace = 'doctor'::regnamespace
-    and has_function_privilege('anon', p.oid, 'execute') and p.proname not in ('open_report_share', 'record_report_share_access', 'register_agent', 'resolve_agent', 'agent_seen', 'accept_agent_batch', 'jira_hook', 'servicenow_hook', 'claim_local_llm', 'finish_local_llm') order by 1$$,
+    and has_function_privilege('anon', p.oid, 'execute') and p.proname not in ('open_report_share', 'record_report_share_access', 'register_agent', 'resolve_agent', 'agent_seen', 'accept_agent_batch', 'jira_hook', 'servicenow_hook', 'claim_local_llm', 'finish_local_llm', 'scim_delete_user', 'scim_set_active', 'scim_upsert_user', 'scim_user_count', 'scim_users', 'sso_discover') order by 1$$,
   $$values ('accept_ingestion_batch'::text), ('resolve_ingestion_token'::text)$$,
   'anon executa só as duas funções do token (fora o link do Relatório, #32)'
 );
