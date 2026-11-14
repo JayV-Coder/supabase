@@ -2,7 +2,7 @@
 -- view de mesmo nome para cada tabela movida, com o RLS de quem consulta.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(7);
+select plan(8);
 
 select is((select count(*)::int from information_schema.tables
   where table_schema = 'coder' and table_type = 'BASE TABLE'), 28, 'as 28 tabelas do app estão em coder');
@@ -19,6 +19,19 @@ select is((select count(*)::int from pg_proc p join pg_namespace n on n.oid = p.
     and p.prosrc ~ ('\mpublic\.(' || (select string_agg(table_name, '|') from information_schema.tables
       where table_schema = 'coder' and table_type = 'BASE TABLE') || ')\M')), 0,
   'nenhuma função do banco cita a tabela antiga em public');
+
+-- Coluna nova numa tabela de `coder` só aparece para o app e o site depois de refazer a view
+-- (`create or replace view public.<tabela> with (security_invoker = true) as select * from
+-- coder.<tabela>`): aqui a migração que esqueceu disso falha.
+select is(
+  (select coalesce(string_agg(c.table_name || '.' || c.column_name, ', ' order by c.table_name, c.ordinal_position), '')
+   from information_schema.columns c
+   join information_schema.views v on v.table_schema = 'public' and v.table_name = c.table_name
+   where c.table_schema = 'coder'
+     and not exists (
+       select 1 from information_schema.columns p
+       where p.table_schema = 'public' and p.table_name = c.table_name and p.column_name = c.column_name)),
+  '', 'toda coluna de coder aparece na view de public');
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-0000000c0d01', 'coder-a@teste.local'),
