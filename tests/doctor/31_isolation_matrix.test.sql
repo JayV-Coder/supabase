@@ -89,6 +89,7 @@ begin
   insert into doctor.sso_connections (tenant_id, metadata_url) values (t, 'https://idp.test/metadata');
   insert into doctor.sso_domains (tenant_id, domain) values (t, 'd' || replace(t::text, '-', '') || '.test');
   insert into doctor.sso_group_roles (tenant_id, group_name, role) values (t, 'AID-Admins', 'admin');
+  insert into doctor.sanitization_rules (tenant_id, extra_patterns) values (t, '{"matricula": "MAT-[0-9]{6}"}');
   insert into doctor.sso_scim_users (tenant_id, user_name) values (t, 'ana@' || t::text || '.test');
   insert into doctor.local_ai_settings (tenant_id, transport, endpoint_url, model)
   values (t, 'private_endpoint', 'https://llm.interno.test/v1', 'llama');
