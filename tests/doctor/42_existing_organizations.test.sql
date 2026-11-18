@@ -2,7 +2,7 @@
 -- membros entram com o Papel equivalente; quem o Doctor removeu não volta sozinho.
 begin;
 \ir ../helpers/tenancy.psql
-select plan(25);
+select plan(33);
 
 select tests.create_user('00000000-0000-4000-8000-00000042a001', 'ana@acme.test');
 select tests.create_user('00000000-0000-4000-8000-00000042b001', 'bruno@acme.test');
@@ -122,6 +122,63 @@ select doctor.join_organizations();
 select is(
   (select count(*) from doctor.memberships where user_id = '00000000-0000-4000-8000-00000042d001'), 0::bigint,
   'suspensa, não dá acesso automático'
+);
+
+-- Saída pelo Doctor por outro caminho (SCIM, grupos do SSO): também não volta sozinho.
+select tests.clear_authentication();
+update doctor.tenants set status = 'active' where id = '00000000-0000-4000-8000-0000004200a1';
+delete from doctor.memberships where user_id = '00000000-0000-4000-8000-00000042e001';
+select tests.authenticate_without_tenant('00000000-0000-4000-8000-00000042e001');
+select doctor.join_organizations();
+select is((select count(*) from doctor.list_organizations()), 0::bigint, 'saída por SCIM ou SSO também fica registrada');
+
+-- Saída pelo jayv-coder chega em cascata e não deixa registro.
+select tests.clear_authentication();
+delete from public.organization_members
+where org_id = '00000000-0000-4000-8000-0000004200a1' and user_id = '00000000-0000-4000-8000-00000042b001';
+select is(
+  (select count(*) from doctor.membership_removals where user_id = '00000000-0000-4000-8000-00000042b001'), 0::bigint,
+  'quem sai pelo jayv-coder perde o acesso sem registro de remoção'
+);
+
+-- Convite aceito (Vínculo explícito) devolve o acesso e apaga o registro.
+insert into doctor.memberships (tenant_id, user_id, role)
+values ('00000000-0000-4000-8000-0000004200a1', '00000000-0000-4000-8000-00000042c001', 'analyst');
+select is(
+  (select count(*) from doctor.membership_removals where user_id = '00000000-0000-4000-8000-00000042c001'), 0::bigint,
+  'Vínculo explícito apaga o registro de remoção'
+);
+
+-- Limite de membros do plano: o acesso automático espera a vaga, sem quebrar o /me.
+update doctor.plan_limits set "limit" = 2 where plan = 'pilot' and resource = 'members';
+insert into public.organization_members (org_id, user_id, role)
+values ('00000000-0000-4000-8000-0000004200a1', '00000000-0000-4000-8000-00000042b001', 'member');
+select tests.authenticate_without_tenant('00000000-0000-4000-8000-00000042b001');
+select lives_ok($$select doctor.join_organizations()$$, 'sem vaga no plano, o /me não falha');
+select is((select count(*) from doctor.list_organizations()), 0::bigint, 'sem vaga no plano, espera');
+select tests.authenticate_without_tenant('00000000-0000-4000-8000-00000042a001');
+select lives_ok($$select doctor.join_organizations()$$, 'quem já tem Vínculo não é barrado pelo limite');
+
+-- Ativar numa Organização com mais membros que o plano: entra quem ativou e os outros até o limite.
+select tests.clear_authentication();
+insert into public.organizations (id, name, slug) values ('00000000-0000-4000-8000-0000004200b2', 'Grande', 'grande-42');
+insert into public.organization_members (org_id, user_id, role) values
+  ('00000000-0000-4000-8000-0000004200b2', '00000000-0000-4000-8000-00000042b001', 'member'),
+  ('00000000-0000-4000-8000-0000004200b2', '00000000-0000-4000-8000-00000042c001', 'maintainer'),
+  ('00000000-0000-4000-8000-0000004200b2', '00000000-0000-4000-8000-00000042e001', 'member'),
+  ('00000000-0000-4000-8000-0000004200b2', '00000000-0000-4000-8000-00000042d001', 'owner');
+update doctor.plan_limits set "limit" = 2 where plan = 'pilot' and resource = 'members';
+select tests.authenticate_without_tenant('00000000-0000-4000-8000-00000042d001');
+select lives_ok(
+  $$select doctor.enable_organization('00000000-0000-4000-8000-0000004200b2', 'Varejo', 'anthropic')$$,
+  'ativar não falha com mais membros que o plano'
+);
+select tests.clear_authentication();
+select results_eq(
+  $$select user_id, role from doctor.memberships where tenant_id = '00000000-0000-4000-8000-0000004200b2' order by role$$,
+  $$values ('00000000-0000-4000-8000-00000042c001'::uuid, 'admin'::text),
+           ('00000000-0000-4000-8000-00000042d001'::uuid, 'owner'::text)$$,
+  'entram quem ativou e, por Papel, os outros até o limite'
 );
 
 select tests.clear_authentication();
