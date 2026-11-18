@@ -45,7 +45,7 @@ select throws_ok(
 select tests.authenticate_without_tenant('00000000-0000-4000-8000-00000042d001');
 select throws_ok(
   $$select doctor.enable_organization('00000000-0000-4000-8000-0000004200a1', 'Indústria', 'anthropic')$$,
-  '42501', null, 'quem não é membro não ativa o Doctor'
+  'P0002', null, 'quem não é membro recebe o mesmo que se ela não existisse'
 );
 select tests.authenticate_without_tenant('00000000-0000-4000-8000-00000042a001');
 select throws_ok(

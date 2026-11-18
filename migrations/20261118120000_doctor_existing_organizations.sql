@@ -54,11 +54,15 @@ set search_path = ''
 as $$
 declare
   caller uuid := auth.uid();
+  caller_role text;
 begin
-  if caller is null or not exists (
-    select 1 from public.organization_members m
-    where m.org_id = org and m.user_id = caller and m.role = 'owner'
-  ) then
+  select m.role into caller_role from public.organization_members m
+  where m.org_id = org and m.user_id = caller;
+  -- Quem não é da Organização recebe o mesmo que se ela não existisse (404 na API).
+  if caller is null or caller_role is null then
+    raise no_data_found using message = 'Organização não encontrada';
+  end if;
+  if caller_role <> 'owner' then
     raise insufficient_privilege using message = 'só o owner da Organização ativa o Doctor';
   end if;
   if exists (select 1 from doctor.tenants t where t.id = org) then
