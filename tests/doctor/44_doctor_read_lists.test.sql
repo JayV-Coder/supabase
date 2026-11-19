@@ -51,7 +51,7 @@ select is(jsonb_array_length(doctor_read.executions(integration => '00000000-000
 select is(jsonb_array_length(doctor_read.executions(since => now() - interval '150 minutes') -> 'items'), 1, 'execuções: desde (pela última atividade)');
 select is(jsonb_array_length(doctor_read.executions(until => now() - interval '150 minutes') -> 'items'), 1, 'execuções: até (pelo primeiro evento)');
 select throws_ok(
-  $$select doctor_read.executions(cursor_at => now())$$, 'DR101', null, 'execuções: cursor pela metade é recusado'
+  $$select doctor_read.executions(cursor_at => now())$$, 'DR111', null, 'execuções: cursor pela metade é recusado'
 );
 select ok(
   doctor_read.executions(lim => 1) -> 'next_cursor' is not null
@@ -87,7 +87,7 @@ select ok(not (doctor_read.connectors() -> 0 ? 'secret_id'), 'conectores: sem a 
 select tests.clear_authentication();
 delete from doctor.memberships where user_id = '00000000-0000-4000-8000-00000044a001';
 select tests.authenticate_as('00000000-0000-4000-8000-00000044a001', '00000000-0000-4000-8000-0000004400a1', 'viewer');
-select throws_ok($$select doctor_read.integrations()$$, 'DR100', null, 'sem Vínculo, a lista é recusada');
+select throws_ok($$select doctor_read.integrations()$$, 'DR110', null, 'sem Vínculo, a lista é recusada');
 select tests.clear_authentication();
 select is(has_function_privilege('anon', 'doctor_read.executions(text, uuid, text, timestamptz, timestamptz, timestamptz, uuid, integer)', 'execute'), false, 'anon não lê');
 
