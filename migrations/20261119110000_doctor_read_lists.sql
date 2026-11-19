@@ -32,6 +32,101 @@ begin
 end;
 $$;
 
+-- O primeiro bloco ganha o que a revisão deste pediu: "sem Organização ativa" com SQLSTATE
+-- próprio (DR100, para o site separá-lo de uma permissão faltando), cursor pela metade recusado
+-- (DR101) e plano por chamada nas buscas com filtros opcionais (o plano genérico do plpgsql
+-- deixaria de usar os índices).
+create or replace function doctor.read_tenant()
+returns uuid
+language plpgsql
+stable
+set search_path = ''
+as $$
+declare
+  tenant uuid := doctor.current_tenant_id();
+begin
+  if tenant is null then
+    raise exception 'sem Organização ativa' using errcode = 'DR100';
+  end if;
+  return tenant;
+end;
+$$;
+
+create or replace function doctor_read.incidents(
+  status text[] default null,
+  severity text[] default null,
+  category text default null,
+  integration uuid default null,
+  environment text default null,
+  assignee uuid default null,
+  since timestamptz default null,
+  until timestamptz default null,
+  cursor_at timestamptz default null,
+  cursor_id uuid default null,
+  lim integer default 20
+)
+returns jsonb
+language plpgsql
+stable
+set search_path = ''
+set plan_cache_mode = force_custom_plan
+as $$
+declare
+  tenant uuid := doctor.read_tenant();
+  size integer := least(greatest(coalesce(lim, 20), 1), 50);
+  rows jsonb;
+  more boolean;
+  last_item jsonb;
+begin
+  if (cursor_at is null) <> (cursor_id is null) then
+    raise exception 'cursor pela metade' using errcode = 'DR101';
+  end if;
+  select coalesce(jsonb_agg(doctor.read_incident(r.n, r.i) order by (r.n).last_seen_at desc, (r.n).id desc), '[]'::jsonb)
+  into rows
+  from (
+    select n, i from doctor.incidents n
+    join doctor.integrations i on i.tenant_id = n.tenant_id and i.id = n.integration_id
+    where (incidents.status is null or n.status = any(incidents.status))
+      and (incidents.severity is null or n.severity = any(incidents.severity))
+      and (incidents.category is null or n.category = incidents.category)
+      and (incidents.integration is null or n.integration_id = incidents.integration)
+      and (incidents.environment is null or i.environment = incidents.environment)
+      and (incidents.assignee is null or n.assignee_id = incidents.assignee)
+      and (incidents.since is null or n.last_seen_at >= incidents.since)
+      and (incidents.until is null or n.first_seen_at <= incidents.until)
+      and (incidents.cursor_at is null or (n.last_seen_at, n.id) < (incidents.cursor_at, incidents.cursor_id))
+    order by n.last_seen_at desc, n.id desc
+    limit size + 1
+  ) r;
+
+  more := jsonb_array_length(rows) > size;
+  if more then
+    rows := rows - size;
+  end if;
+  last_item := rows -> (jsonb_array_length(rows) - 1);
+
+  return jsonb_build_object(
+    'items', rows,
+    'next_cursor', case when more then jsonb_build_object('at', last_item -> 'last_seen_at', 'id', last_item -> 'id') end,
+    -- Os chips só usam as contagens da primeira página.
+    'counts', case when incidents.cursor_at is null then coalesce((
+      select jsonb_object_agg(c.status, c.total) from (
+        select n.status, count(*)::int as total from doctor.incidents n
+        join doctor.integrations i on i.tenant_id = n.tenant_id and i.id = n.integration_id
+        where (incidents.severity is null or n.severity = any(incidents.severity))
+          and (incidents.category is null or n.category = incidents.category)
+          and (incidents.integration is null or n.integration_id = incidents.integration)
+          and (incidents.environment is null or i.environment = incidents.environment)
+          and (incidents.assignee is null or n.assignee_id = incidents.assignee)
+          and (incidents.since is null or n.last_seen_at >= incidents.since)
+          and (incidents.until is null or n.first_seen_at <= incidents.until)
+        group by n.status
+      ) c
+    ), '{}'::jsonb) else '{}'::jsonb end
+  );
+end;
+$$;
+
 -- O Explorador de Execuções sem a busca por texto (que precisa do HMAC da Referência de negócio
 -- e continua pela API): filtros, página por cursor (first_event_at, id) e o Incidente ligado.
 create function doctor_read.executions(
@@ -48,6 +143,7 @@ returns jsonb
 language plpgsql
 stable
 set search_path = ''
+set plan_cache_mode = force_custom_plan
 as $$
 declare
   size integer := least(greatest(coalesce(lim, 50), 1), 50);
@@ -56,6 +152,9 @@ declare
   last_item jsonb;
 begin
   perform doctor.read_tenant();
+  if (cursor_at is null) <> (cursor_id is null) then
+    raise exception 'cursor pela metade' using errcode = 'DR101';
+  end if;
   select coalesce(jsonb_agg(r.item order by r.first_event_at desc, r.id desc), '[]'::jsonb)
   into rows
   from (

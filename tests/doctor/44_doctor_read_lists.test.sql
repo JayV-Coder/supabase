@@ -2,7 +2,7 @@
 -- Conectores, as listas que mais páginas do Doctor pedem.
 begin;
 \ir ../helpers/tenancy.psql
-select plan(16);
+select plan(21);
 
 select tests.create_user('00000000-0000-4000-8000-00000044a001', 'ana@acme.test');
 select tests.create_user('00000000-0000-4000-8000-00000044c001', 'caio@varejo.test');
@@ -47,6 +47,12 @@ select is(doctor_read.executions() -> 'items' -> 1 -> 'incident' ->> 'title', 'T
 select is(doctor_read.executions() -> 'items' -> 0 -> 'incident', 'null'::jsonb, 'execuções: sem Incidente, nulo');
 select is(doctor_read.executions(status => 'failed') -> 'items' -> 0 ->> 'id', '00000000-0000-4000-8000-0000004402a1', 'execuções: filtro de status');
 select is(jsonb_array_length(doctor_read.executions(environment => 'hml') -> 'items'), 0, 'execuções: filtro de Ambiente');
+select is(jsonb_array_length(doctor_read.executions(integration => '00000000-0000-4000-8000-0000004401a2') -> 'items'), 0, 'execuções: filtro de Integração');
+select is(jsonb_array_length(doctor_read.executions(since => now() - interval '150 minutes') -> 'items'), 1, 'execuções: desde (pela última atividade)');
+select is(jsonb_array_length(doctor_read.executions(until => now() - interval '150 minutes') -> 'items'), 1, 'execuções: até (pelo primeiro evento)');
+select throws_ok(
+  $$select doctor_read.executions(cursor_at => now())$$, 'DR101', null, 'execuções: cursor pela metade é recusado'
+);
 select ok(
   doctor_read.executions(lim => 1) -> 'next_cursor' is not null
   and doctor_read.executions(
@@ -55,6 +61,20 @@ select ok(
     cursor_id => (doctor_read.executions(lim => 1) -> 'next_cursor' ->> 'id')::uuid
   ) -> 'items' -> 0 ->> 'id' = '00000000-0000-4000-8000-0000004402a1',
   'execuções: página seguinte pelo cursor'
+);
+
+-- Empate no instante: o id desempata, e a página seguinte não repete nem pula.
+select tests.clear_authentication();
+update doctor.executions set first_event_at = '2026-11-01T10:00:00Z', last_event_at = '2026-11-01T10:00:00Z'
+where id in ('00000000-0000-4000-8000-0000004402a1', '00000000-0000-4000-8000-0000004402a2');
+select tests.authenticate_as('00000000-0000-4000-8000-00000044a001', '00000000-0000-4000-8000-0000004400a1', 'viewer');
+select results_eq(
+  $$select array[
+      doctor_read.executions(lim => 1) -> 'items' -> 0 ->> 'id',
+      doctor_read.executions(lim => 1, cursor_at => '2026-11-01T10:00:00Z',
+        cursor_id => (doctor_read.executions(lim => 1) -> 'next_cursor' ->> 'id')::uuid) -> 'items' -> 0 ->> 'id']$$,
+  $$values (array['00000000-0000-4000-8000-0000004402a2', '00000000-0000-4000-8000-0000004402a1'])$$,
+  'execuções: empate no instante, sem repetir nem pular'
 );
 
 -- Conectores
@@ -67,7 +87,7 @@ select ok(not (doctor_read.connectors() -> 0 ? 'secret_id'), 'conectores: sem a 
 select tests.clear_authentication();
 delete from doctor.memberships where user_id = '00000000-0000-4000-8000-00000044a001';
 select tests.authenticate_as('00000000-0000-4000-8000-00000044a001', '00000000-0000-4000-8000-0000004400a1', 'viewer');
-select throws_ok($$select doctor_read.integrations()$$, '42501', null, 'sem Vínculo, a lista é recusada');
+select throws_ok($$select doctor_read.integrations()$$, 'DR100', null, 'sem Vínculo, a lista é recusada');
 select tests.clear_authentication();
 select is(has_function_privilege('anon', 'doctor_read.executions(text, uuid, text, timestamptz, timestamptz, timestamptz, uuid, integer)', 'execute'), false, 'anon não lê');
 
