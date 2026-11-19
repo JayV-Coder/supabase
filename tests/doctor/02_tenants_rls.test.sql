@@ -6,6 +6,7 @@ select plan(15);
 select tests.create_tenant('00000000-0000-4000-8000-00000000ac01', 'acme');
 select tests.create_tenant('00000000-0000-4000-8000-00000000be01', 'varejo');
 select tests.create_user('00000000-0000-4000-8000-0000000a0001', 'ana@acme.test');
+select tests.add_member('00000000-0000-4000-8000-00000000ac01', '00000000-0000-4000-8000-0000000a0001', 'admin');
 
 select policies_are('doctor', 'tenants', array['tenants_select_own', 'tenants_update_by_admin']);
 select is(
