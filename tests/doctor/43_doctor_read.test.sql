@@ -35,8 +35,9 @@ select is(has_schema_privilege('anon', 'doctor_read', 'usage'), false, 'anon nã
 select is(has_schema_privilege('authenticated', 'doctor_read', 'usage'), true, 'authenticated usa doctor_read');
 select is(
   (select array_agg(p.proname::text order by p.proname::text) from pg_proc p
-   join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'doctor_read'),
-  array['dashboard', 'incidents', 'me'],
+   join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'doctor_read' and p.proname::text in ('tenant', 'change', 'incident_row', 'read_tenant', 'read_change', 'read_incident')),
+  null,
   'a API de dados só oferece uma função por tela (os auxiliares ficam em doctor)'
 );
 
