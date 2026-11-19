@@ -2,7 +2,7 @@
 -- (aal1) não lê nada da Organização (RLS, doctor_read e Realtime), e o motivo é dado.
 begin;
 \ir ../helpers/tenancy.psql
-select plan(16);
+select plan(17);
 
 select tests.create_user('00000000-0000-4000-8000-00000045a001', 'ana@acme.test');
 select tests.create_user('00000000-0000-4000-8000-00000045b001', 'bia@acme.test');
@@ -23,6 +23,11 @@ select throws_ok($$select doctor.set_require_mfa(true)$$, '42501', null, 'admin 
 select tests.authenticate_as('00000000-0000-4000-8000-00000045a001', '00000000-0000-4000-8000-0000004500a1', 'admin', 'aal2');
 select lives_ok($$select doctor.set_require_mfa(true)$$, 'admin com MFA liga');
 select is((select require_mfa from doctor.tenants where id = '00000000-0000-4000-8000-0000004500a1'), true, 'ficou ligada');
+select is(
+  (select after ->> 'require_mfa' from doctor.audit_logs
+   where tenant_id = '00000000-0000-4000-8000-0000004500a1' and action = 'org.updated' order by id desc limit 1),
+  'true', 'a mudança vai para a trilha de auditoria'
+);
 select is(doctor.access_problem(), null, 'com MFA, nenhum problema de acesso');
 select is((select count(*) from doctor.integrations), 1::bigint, 'com MFA, lê');
 
