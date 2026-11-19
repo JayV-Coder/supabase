@@ -12,6 +12,10 @@ select tests.clear_authentication();
 select is(doctor.current_tenant_id(), null, 'sem JWT não há Organização ativa');
 select is(doctor.has_role('owner', 'admin', 'analyst', 'viewer'), false, 'sem JWT nenhum Papel vale');
 
+-- A Organização do JWT só vale com Vínculo (ADR-0026 do jayv-doctor).
+select tests.create_user('00000000-0000-4000-8000-0000000000a1', 'ana@schema.test');
+select tests.create_tenant('00000000-0000-4000-8000-0000000000aa', 'schema-01');
+select tests.add_member('00000000-0000-4000-8000-0000000000aa', '00000000-0000-4000-8000-0000000000a1', 'analyst');
 select tests.authenticate_as(
   '00000000-0000-4000-8000-0000000000a1', '00000000-0000-4000-8000-0000000000aa', 'analyst'
 );
