@@ -8,8 +8,9 @@ comment on column doctor.tenants.require_mfa is
   'Exige o segundo fator (aal2) de todos os Papéis para ler e gravar na Organização (#49).';
 
 -- Por que quem pede não acessa a Organização: nulo se acessa; `no_membership` sem Vínculo;
--- `mfa_required` se a Organização exige MFA e a sessão não o tem.
-create function doctor.tenant_access(tenant uuid, member uuid, aal text)
+-- `mfa_required` se a Organização exige MFA e a sessão não o tem. Só fala de quem pede
+-- (`auth.uid()` e o aal da sessão), e "sem Vínculo" vem antes: de fora, a política não vaza.
+create function doctor.tenant_access(tenant uuid)
 returns text
 language sql
 stable
@@ -18,13 +19,16 @@ set search_path = ''
 as $$
   select case
     when not exists (
-      select 1 from doctor.memberships m where m.tenant_id = tenant and m.user_id = member
+      select 1 from doctor.memberships m where m.tenant_id = tenant and m.user_id = auth.uid()
     ) then 'no_membership'
-    when aal is distinct from 'aal2' and exists (
+    when doctor.current_aal() is distinct from 'aal2' and exists (
       select 1 from doctor.tenants t where t.id = tenant and t.require_mfa
     ) then 'mfa_required'
   end
 $$;
+
+-- O Vínculo agora é conferido em tenant_access.
+drop function doctor.has_membership(uuid, uuid);
 
 create or replace function doctor.current_tenant_id()
 returns uuid
@@ -35,7 +39,7 @@ as $$
   select case
     when claim.tenant is null then null
     when auth.uid() is null then claim.tenant
-    when doctor.tenant_access(claim.tenant, auth.uid(), doctor.current_aal()) is null then claim.tenant
+    when doctor.tenant_access(claim.tenant) is null then claim.tenant
   end
   from (select nullif(auth.jwt() ->> 'tenant_id', '')::uuid as tenant) claim
 $$;
@@ -48,27 +52,45 @@ stable
 set search_path = ''
 as $$
   select case when claim.tenant is not null and auth.uid() is not null
-    then doctor.tenant_access(claim.tenant, auth.uid(), doctor.current_aal()) end
+    then doctor.tenant_access(claim.tenant) end
   from (select nullif(auth.jwt() ->> 'tenant_id', '')::uuid as tenant) claim
 $$;
 
--- Liga ou desliga a política: Owner ou Admin com MFA (`require_manager`); o trigger de
--- auditoria de `tenants` registra a mudança.
+-- Liga ou desliga a política e devolve o valor gravado: Owner ou Admin com MFA
+-- (`require_manager`); o trigger de auditoria de `tenants` registra a mudança.
 create function doctor.set_require_mfa(enabled boolean)
-returns void
+returns boolean
 language plpgsql
 security definer
 set search_path = ''
 as $$
+declare
+  saved boolean;
 begin
   perform doctor.require_manager();
-  update doctor.tenants t set require_mfa = enabled where t.id = doctor.current_tenant_id();
+  update doctor.tenants t set require_mfa = enabled where t.id = doctor.current_tenant_id()
+  returning t.require_mfa into saved;
+  return saved;
 end;
 $$;
 
 -- As leituras diretas dizem por que não leram, numa faixa própria (DR110–DR119): os DR100–DR104
 -- do bloco anterior já eram do SSO. DR110: sem Organização ativa; DR111: cursor pela metade;
 -- DR112: falta o MFA que a Organização exige.
+-- O cursor vem inteiro (instante e id) ou não vem: num lugar só, para as buscas.
+create function doctor.read_cursor(cursor_at timestamptz, cursor_id uuid)
+returns void
+language plpgsql
+immutable
+set search_path = ''
+as $$
+begin
+  if (cursor_at is null) <> (cursor_id is null) then
+    raise exception 'cursor pela metade' using errcode = 'DR111';
+  end if;
+end;
+$$;
+
 create or replace function doctor.read_tenant()
 returns uuid
 language plpgsql
@@ -114,9 +136,7 @@ declare
   more boolean;
   last_item jsonb;
 begin
-  if (cursor_at is null) <> (cursor_id is null) then
-    raise exception 'cursor pela metade' using errcode = 'DR111';
-  end if;
+  perform doctor.read_cursor(cursor_at, cursor_id);
   select coalesce(jsonb_agg(doctor.read_incident(r.n, r.i) order by (r.n).last_seen_at desc, (r.n).id desc), '[]'::jsonb)
   into rows
   from (
@@ -186,9 +206,7 @@ declare
   last_item jsonb;
 begin
   perform doctor.read_tenant();
-  if (cursor_at is null) <> (cursor_id is null) then
-    raise exception 'cursor pela metade' using errcode = 'DR111';
-  end if;
+  perform doctor.read_cursor(cursor_at, cursor_id);
   select coalesce(jsonb_agg(r.item order by r.first_event_at desc, r.id desc), '[]'::jsonb)
   into rows
   from (
@@ -270,8 +288,10 @@ begin
 end;
 $$;
 
-revoke all on function doctor.tenant_access(uuid, uuid, text) from public, anon;
-grant execute on function doctor.tenant_access(uuid, uuid, text) to authenticated, service_role;
+revoke all on function doctor.tenant_access(uuid) from public, anon;
+grant execute on function doctor.tenant_access(uuid) to authenticated, service_role;
+revoke all on function doctor.read_cursor(timestamptz, uuid) from public, anon, service_role;
+grant execute on function doctor.read_cursor(timestamptz, uuid) to authenticated;
 revoke all on function doctor.access_problem() from public, anon;
 grant execute on function doctor.access_problem() to authenticated, service_role;
 revoke all on function doctor.set_require_mfa(boolean) from public, anon, service_role;

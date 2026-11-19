@@ -2,10 +2,11 @@
 -- (aal1) não lê nada da Organização (RLS, doctor_read e Realtime), e o motivo é dado.
 begin;
 \ir ../helpers/tenancy.psql
-select plan(17);
+select plan(21);
 
 select tests.create_user('00000000-0000-4000-8000-00000045a001', 'ana@acme.test');
 select tests.create_user('00000000-0000-4000-8000-00000045b001', 'bia@acme.test');
+select tests.create_user('00000000-0000-4000-8000-00000045c001', 'caio@varejo.test');
 select tests.create_tenant('00000000-0000-4000-8000-0000004500a1', 'acme-45');
 select tests.add_member('00000000-0000-4000-8000-0000004500a1', '00000000-0000-4000-8000-00000045a001', 'admin');
 select tests.add_member('00000000-0000-4000-8000-0000004500a1', '00000000-0000-4000-8000-00000045b001', 'viewer');
@@ -21,7 +22,7 @@ select throws_ok($$select doctor.set_require_mfa(true)$$, '42501', null, 'viewer
 select tests.authenticate_as('00000000-0000-4000-8000-00000045a001', '00000000-0000-4000-8000-0000004500a1', 'admin', 'aal1');
 select throws_ok($$select doctor.set_require_mfa(true)$$, '42501', null, 'admin sem MFA não liga');
 select tests.authenticate_as('00000000-0000-4000-8000-00000045a001', '00000000-0000-4000-8000-0000004500a1', 'admin', 'aal2');
-select lives_ok($$select doctor.set_require_mfa(true)$$, 'admin com MFA liga');
+select is(doctor.set_require_mfa(true), true, 'admin com MFA liga, e a função devolve o valor gravado');
 select is((select require_mfa from doctor.tenants where id = '00000000-0000-4000-8000-0000004500a1'), true, 'ficou ligada');
 select is(
   (select after ->> 'require_mfa' from doctor.audit_logs
@@ -52,6 +53,14 @@ select is((select count(*) from doctor.integrations), 1::bigint, 'worker sem Usu
 reset role;
 select tests.clear_authentication();
 select is(has_function_privilege('anon', 'doctor.set_require_mfa(boolean)', 'execute'), false, 'anon não muda a política');
+-- O motivo só fala de quem pergunta: nada de consultar o Vínculo ou a política de outra pessoa.
+select hasnt_function('doctor', 'tenant_access', array['uuid', 'uuid', 'text'], 'tenant_access não aceita outro Usuário');
+select has_function('doctor', 'tenant_access', array['uuid'], 'tenant_access(tenant) usa auth.uid() e o aal da sessão');
+select hasnt_function('doctor', 'has_membership', 'has_membership saiu: tenant_access cobre o Vínculo');
+-- De fora da Organização, "sem Vínculo" vem antes do MFA: a política dela não vaza.
+select tests.authenticate_as('00000000-0000-4000-8000-00000045c001', '00000000-0000-4000-8000-0000004500a1', 'viewer', 'aal1');
+select is(doctor.tenant_access('00000000-0000-4000-8000-0000004500a1'), 'no_membership', 'de fora, só "sem Vínculo"');
+select tests.clear_authentication();
 
 select * from finish();
 rollback;
