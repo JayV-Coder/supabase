@@ -66,7 +66,9 @@ begin
 end;
 $$;
 
--- As leituras diretas dizem por que não leram: DR102 é "falta o MFA".
+-- As leituras diretas dizem por que não leram, numa faixa própria (DR110–DR119): os DR100–DR104
+-- do bloco anterior já eram do SSO. DR110: sem Organização ativa; DR111: cursor pela metade;
+-- DR112: falta o MFA que a Organização exige.
 create or replace function doctor.read_tenant()
 returns uuid
 language plpgsql
@@ -78,11 +80,151 @@ declare
 begin
   if tenant is null then
     if doctor.access_problem() is not distinct from 'mfa_required' then
-      raise exception 'a Organização exige verificação em duas etapas' using errcode = 'DR102';
+      raise exception 'a Organização exige verificação em duas etapas' using errcode = 'DR112';
     end if;
-    raise exception 'sem Organização ativa' using errcode = 'DR100';
+    raise exception 'sem Organização ativa' using errcode = 'DR110';
   end if;
   return tenant;
+end;
+$$;
+
+create or replace function doctor_read.incidents(
+  status text[] default null,
+  severity text[] default null,
+  category text default null,
+  integration uuid default null,
+  environment text default null,
+  assignee uuid default null,
+  since timestamptz default null,
+  until timestamptz default null,
+  cursor_at timestamptz default null,
+  cursor_id uuid default null,
+  lim integer default 20
+)
+returns jsonb
+language plpgsql
+stable
+set search_path = ''
+set plan_cache_mode = force_custom_plan
+as $$
+declare
+  tenant uuid := doctor.read_tenant();
+  size integer := least(greatest(coalesce(lim, 20), 1), 50);
+  rows jsonb;
+  more boolean;
+  last_item jsonb;
+begin
+  if (cursor_at is null) <> (cursor_id is null) then
+    raise exception 'cursor pela metade' using errcode = 'DR111';
+  end if;
+  select coalesce(jsonb_agg(doctor.read_incident(r.n, r.i) order by (r.n).last_seen_at desc, (r.n).id desc), '[]'::jsonb)
+  into rows
+  from (
+    select n, i from doctor.incidents n
+    join doctor.integrations i on i.tenant_id = n.tenant_id and i.id = n.integration_id
+    where (incidents.status is null or n.status = any(incidents.status))
+      and (incidents.severity is null or n.severity = any(incidents.severity))
+      and (incidents.category is null or n.category = incidents.category)
+      and (incidents.integration is null or n.integration_id = incidents.integration)
+      and (incidents.environment is null or i.environment = incidents.environment)
+      and (incidents.assignee is null or n.assignee_id = incidents.assignee)
+      and (incidents.since is null or n.last_seen_at >= incidents.since)
+      and (incidents.until is null or n.first_seen_at <= incidents.until)
+      and (incidents.cursor_at is null or (n.last_seen_at, n.id) < (incidents.cursor_at, incidents.cursor_id))
+    order by n.last_seen_at desc, n.id desc
+    limit size + 1
+  ) r;
+
+  more := jsonb_array_length(rows) > size;
+  if more then
+    rows := rows - size;
+  end if;
+  last_item := rows -> (jsonb_array_length(rows) - 1);
+
+  return jsonb_build_object(
+    'items', rows,
+    'next_cursor', case when more then jsonb_build_object('at', last_item -> 'last_seen_at', 'id', last_item -> 'id') end,
+    -- Os chips só usam as contagens da primeira página.
+    'counts', case when incidents.cursor_at is null then coalesce((
+      select jsonb_object_agg(c.status, c.total) from (
+        select n.status, count(*)::int as total from doctor.incidents n
+        join doctor.integrations i on i.tenant_id = n.tenant_id and i.id = n.integration_id
+        where (incidents.severity is null or n.severity = any(incidents.severity))
+          and (incidents.category is null or n.category = incidents.category)
+          and (incidents.integration is null or n.integration_id = incidents.integration)
+          and (incidents.environment is null or i.environment = incidents.environment)
+          and (incidents.assignee is null or n.assignee_id = incidents.assignee)
+          and (incidents.since is null or n.last_seen_at >= incidents.since)
+          and (incidents.until is null or n.first_seen_at <= incidents.until)
+        group by n.status
+      ) c
+    ), '{}'::jsonb) else '{}'::jsonb end
+  );
+end;
+$$;
+
+create or replace function doctor_read.executions(
+  status text default null,
+  integration uuid default null,
+  environment text default null,
+  since timestamptz default null,
+  until timestamptz default null,
+  cursor_at timestamptz default null,
+  cursor_id uuid default null,
+  lim integer default 50
+)
+returns jsonb
+language plpgsql
+stable
+set search_path = ''
+set plan_cache_mode = force_custom_plan
+as $$
+declare
+  size integer := least(greatest(coalesce(lim, 50), 1), 50);
+  rows jsonb;
+  more boolean;
+  last_item jsonb;
+begin
+  perform doctor.read_tenant();
+  if (cursor_at is null) <> (cursor_id is null) then
+    raise exception 'cursor pela metade' using errcode = 'DR111';
+  end if;
+  select coalesce(jsonb_agg(r.item order by r.first_event_at desc, r.id desc), '[]'::jsonb)
+  into rows
+  from (
+    select x.first_event_at, x.id, jsonb_build_object(
+      'id', x.id, 'integration_id', x.integration_id, 'integration_name', i.name,
+      'environment', i.environment, 'status', x.status, 'low_confidence', x.low_confidence,
+      'first_event_at', x.first_event_at, 'last_event_at', x.last_event_at,
+      'duration_ms', x.duration_ms, 'event_count', x.event_count, 'closed_at', x.closed_at,
+      'correlation_keys', x.correlation_keys,
+      'incident', case when inc.id is null then null else jsonb_build_object(
+        'id', inc.id, 'title', inc.title, 'severity', inc.severity, 'status', inc.status) end
+    ) as item
+    from doctor.executions x
+    join doctor.integrations i on i.tenant_id = x.tenant_id and i.id = x.integration_id
+    left join doctor.incident_executions ie on ie.tenant_id = x.tenant_id and ie.execution_id = x.id
+    left join doctor.incidents inc on inc.tenant_id = ie.tenant_id and inc.id = ie.incident_id
+    where x.merged_into is null
+      and (executions.status is null or x.status = executions.status)
+      and (executions.integration is null or x.integration_id = executions.integration)
+      and (executions.environment is null or i.environment = executions.environment)
+      and (executions.since is null or x.last_event_at >= executions.since)
+      and (executions.until is null or x.first_event_at <= executions.until)
+      and (executions.cursor_at is null or (x.first_event_at, x.id) < (executions.cursor_at, executions.cursor_id))
+    order by x.first_event_at desc, x.id desc
+    limit size + 1
+  ) r;
+
+  more := jsonb_array_length(rows) > size;
+  if more then
+    rows := rows - size;
+  end if;
+  last_item := rows -> (jsonb_array_length(rows) - 1);
+  return jsonb_build_object(
+    'items', rows,
+    'next_cursor', case when more then jsonb_build_object('at', last_item -> 'first_event_at', 'id', last_item -> 'id') end
+  );
 end;
 $$;
 

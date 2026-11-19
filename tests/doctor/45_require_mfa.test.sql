@@ -31,7 +31,7 @@ select tests.authenticate_as('00000000-0000-4000-8000-00000045b001', '00000000-0
 select is(doctor.current_tenant_id(), null, 'sem MFA, a Organização não vale');
 select is(doctor.access_problem(), 'mfa_required', 'sem MFA, o motivo é o MFA');
 select is((select count(*) from doctor.integrations), 0::bigint, 'sem MFA, o RLS não devolve nada');
-select throws_ok($$select doctor_read.integrations()$$, 'DR102', null, 'sem MFA, a leitura direta pede o MFA');
+select throws_ok($$select doctor_read.integrations()$$, 'DR112', null, 'sem MFA, a leitura direta pede o MFA');
 select is((doctor_read.me() ->> 'mfa_required')::boolean, true, 'me: avisa que falta o MFA');
 
 -- Desligada, aal1 volta a ler; worker sem Usuário nunca é afetado.
