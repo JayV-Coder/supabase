@@ -2,7 +2,7 @@
 -- na API de dados, e a Organização do JWT que só vale com Vínculo vivo.
 begin;
 \ir ../helpers/tenancy.psql
-select plan(24);
+select plan(27);
 
 select tests.create_user('00000000-0000-4000-8000-00000043a001', 'ana@acme.test');
 select tests.create_user('00000000-0000-4000-8000-00000043b001', 'bia@acme.test');
@@ -33,6 +33,12 @@ insert into doctor.incidents (id, tenant_id, integration_id, title, category, se
 select has_schema('doctor_read', 'schema doctor_read existe');
 select is(has_schema_privilege('anon', 'doctor_read', 'usage'), false, 'anon não usa doctor_read');
 select is(has_schema_privilege('authenticated', 'doctor_read', 'usage'), true, 'authenticated usa doctor_read');
+select is(
+  (select array_agg(p.proname::text order by p.proname::text) from pg_proc p
+   join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'doctor_read'),
+  array['dashboard', 'incidents', 'me'],
+  'a API de dados só oferece uma função por tela (os auxiliares ficam em doctor)'
+);
 
 -- /me
 select tests.authenticate_as('00000000-0000-4000-8000-00000043a001', '00000000-0000-4000-8000-0000004300a1', 'owner', 'aal2');
@@ -79,6 +85,13 @@ select tests.clear_authentication();
 select set_config('request.jwt.claims', '{"role": "authenticated", "tenant_id": "00000000-0000-4000-8000-0000004300a1"}', true);
 set local role authenticated;
 select is((select count(*) from doctor.incidents), 2::bigint, 'worker sem Usuário segue lendo a Organização');
+
+-- service_role (workers em jobs de plataforma) avalia a Organização sem erro de permissão.
+select tests.clear_authentication();
+set local role service_role;
+select lives_ok($$select doctor.current_tenant_id()$$, 'service_role avalia current_tenant_id');
+select is(doctor.current_tenant_id(), null, 'service_role sem claim não tem Organização');
+reset role;
 
 select * from finish();
 rollback;

@@ -35,8 +35,9 @@ as $$
   from (select nullif(auth.jwt() ->> 'tenant_id', '')::uuid as tenant) claim
 $$;
 
-revoke all on function doctor.has_membership(uuid, uuid) from public, anon, service_role;
-grant execute on function doctor.has_membership(uuid, uuid) to authenticated;
+revoke all on function doctor.has_membership(uuid, uuid) from public, anon;
+-- `current_tenant_id()` a chama para todo papel que avalia o RLS, inclusive os jobs de plataforma.
+grant execute on function doctor.has_membership(uuid, uuid) to authenticated, service_role;
 
 create schema doctor_read;
 comment on schema doctor_read is
@@ -44,8 +45,11 @@ comment on schema doctor_read is
 revoke all on schema doctor_read from public, anon;
 grant usage on schema doctor_read to authenticated;
 
+-- Auxiliares das leituras: ficam em `doctor`, fora da API de dados, para o PostgREST oferecer só
+-- uma função por tela.
+
 -- A Organização ativa de quem chama, com Vínculo; sem ela, nada a ler.
-create function doctor_read.tenant()
+create function doctor.read_tenant()
 returns uuid
 language plpgsql
 stable
@@ -62,7 +66,7 @@ end;
 $$;
 
 -- Variação relativa; sem valor ou com base zero, não há comparação (como na API).
-create function doctor_read.change(current_value numeric, previous_value numeric)
+create function doctor.read_change(current_value numeric, previous_value numeric)
 returns numeric
 language sql
 immutable
@@ -72,7 +76,7 @@ as $$
     else (current_value - previous_value) / previous_value end
 $$;
 
-create function doctor_read.incident_row(n doctor.incidents, i doctor.integrations)
+create function doctor.read_incident(n doctor.incidents, i doctor.integrations)
 returns jsonb
 language sql
 stable
@@ -145,7 +149,7 @@ stable
 set search_path = ''
 as $$
 declare
-  tenant uuid := doctor_read.tenant();
+  tenant uuid := doctor.read_tenant();
   span interval;
   bucket text;
   step interval;
@@ -201,11 +205,11 @@ begin
     'period', period,
     'bucket', bucket,
     'executions', jsonb_build_object('value', totals.total, 'previous', totals.before_total,
-      'change', doctor_read.change(totals.total, totals.before_total)),
+      'change', doctor.read_change(totals.total, totals.before_total)),
     'error_rate', jsonb_build_object('value', rate, 'previous', before_rate,
-      'change', doctor_read.change(rate, before_rate)),
+      'change', doctor.read_change(rate, before_rate)),
     'mttr_minutes', jsonb_build_object('value', mttr.current_value, 'previous', mttr.before_value,
-      'change', doctor_read.change(mttr.current_value, mttr.before_value)),
+      'change', doctor.read_change(mttr.current_value, mttr.before_value)),
     'open_incidents', (
       select count(*)::int from doctor.incidents n
       join doctor.integrations i on i.tenant_id = n.tenant_id and i.id = n.integration_id
@@ -214,7 +218,7 @@ begin
         and (dashboard.integration is null or i.id = dashboard.integration)
     ),
     'mttr_baseline_minutes', baseline,
-    'mttr_vs_baseline', doctor_read.change(mttr.current_value, baseline),
+    'mttr_vs_baseline', doctor.read_change(mttr.current_value, baseline),
     -- Série completa, em UTC: intervalo sem falha aparece como zero, não some.
     'failures', coalesce((
       with series as (
@@ -251,7 +255,7 @@ begin
       ) c
     ), '[]'::jsonb),
     'critical_incident', (
-      select doctor_read.incident_row(n, i) from doctor.incidents n
+      select doctor.read_incident(n, i) from doctor.incidents n
       join doctor.integrations i on i.tenant_id = n.tenant_id and i.id = n.integration_id
       where n.status in ('open', 'investigating') and n.severity = 'critical'
         and (dashboard.environment is null or i.environment = dashboard.environment)
@@ -259,7 +263,7 @@ begin
       order by n.last_seen_at desc limit 1
     ),
     'recent_incidents', coalesce((
-      select jsonb_agg(doctor_read.incident_row(r.n, r.i) order by (r.n).last_seen_at desc)
+      select jsonb_agg(doctor.read_incident(r.n, r.i) order by (r.n).last_seen_at desc)
       from (
         select n, i from doctor.incidents n
         join doctor.integrations i on i.tenant_id = n.tenant_id and i.id = n.integration_id
@@ -294,13 +298,13 @@ stable
 set search_path = ''
 as $$
 declare
-  tenant uuid := doctor_read.tenant();
+  tenant uuid := doctor.read_tenant();
   size integer := least(greatest(coalesce(lim, 20), 1), 50);
   rows jsonb;
   more boolean;
   last_item jsonb;
 begin
-  select coalesce(jsonb_agg(doctor_read.incident_row(r.n, r.i) order by (r.n).last_seen_at desc, (r.n).id desc), '[]'::jsonb)
+  select coalesce(jsonb_agg(doctor.read_incident(r.n, r.i) order by (r.n).last_seen_at desc, (r.n).id desc), '[]'::jsonb)
   into rows
   from (
     select n, i from doctor.incidents n
@@ -345,6 +349,13 @@ begin
   );
 end;
 $$;
+
+revoke all on function doctor.read_tenant() from public, anon, service_role;
+revoke all on function doctor.read_change(numeric, numeric) from public, anon, service_role;
+revoke all on function doctor.read_incident(doctor.incidents, doctor.integrations) from public, anon, service_role;
+grant execute on function doctor.read_tenant() to authenticated;
+grant execute on function doctor.read_change(numeric, numeric) to authenticated;
+grant execute on function doctor.read_incident(doctor.incidents, doctor.integrations) to authenticated;
 
 revoke all on all functions in schema doctor_read from public, anon, service_role;
 grant execute on all functions in schema doctor_read to authenticated;
