@@ -2,7 +2,7 @@
 -- na API de dados, e a Organização do JWT que só vale com Vínculo vivo.
 begin;
 \ir ../helpers/tenancy.psql
-select plan(27);
+select plan(28);
 
 select tests.create_user('00000000-0000-4000-8000-00000043a001', 'ana@acme.test');
 select tests.create_user('00000000-0000-4000-8000-00000043b001', 'bia@acme.test');
@@ -36,7 +36,7 @@ select is(has_schema_privilege('authenticated', 'doctor_read', 'usage'), true, '
 select is(
   (select array_agg(p.proname::text order by p.proname::text) from pg_proc p
    join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'doctor_read'),
-  array['dashboard', 'incidents', 'me'],
+  array['connectors', 'dashboard', 'executions', 'incidents', 'integrations', 'me'],
   'a API de dados só oferece uma função por tela (os auxiliares ficam em doctor)'
 );
 
@@ -62,6 +62,10 @@ select throws_ok($$select doctor_read.dashboard('1y')$$, '22023', null, 'painel:
 select is(jsonb_array_length(doctor_read.incidents() -> 'items'), 2, 'incidentes: só os da Organização');
 select is((doctor_read.incidents() -> 'counts' ->> 'open')::int, 1, 'incidentes: contagem por status');
 select is(doctor_read.incidents(status => array['resolved']) -> 'items' -> 0 ->> 'title', 'Campo obrigatório', 'incidentes: filtro de status');
+select throws_ok(
+  $$select doctor_read.incidents(cursor_id => '00000000-0000-4000-8000-000000000001')$$, 'DR101', null,
+  'incidentes: cursor pela metade é recusado'
+);
 select ok(
   doctor_read.incidents(lim => 1) -> 'next_cursor' is not null
   and jsonb_array_length(doctor_read.incidents(
@@ -78,7 +82,7 @@ delete from doctor.memberships where user_id = '00000000-0000-4000-8000-00000043
 select tests.authenticate_as('00000000-0000-4000-8000-00000043b001', '00000000-0000-4000-8000-0000004300a1', 'viewer', 'aal1');
 select is(doctor.current_tenant_id(), null, 'sem Vínculo, a Organização do JWT não vale');
 select is((select count(*) from doctor.incidents), 0::bigint, 'sem Vínculo, o RLS não devolve Incidentes');
-select throws_ok($$select doctor_read.dashboard('24h')$$, '42501', null, 'sem Vínculo, o painel é recusado');
+select throws_ok($$select doctor_read.dashboard('24h')$$, 'DR100', null, 'sem Vínculo, o painel é recusado');
 
 -- Worker (claim do tenant sem Usuário) continua lendo pela Organização.
 select tests.clear_authentication();
