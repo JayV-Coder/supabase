@@ -55,9 +55,8 @@ select throws_ok(
     values ('Clientes', 'oracle', 'salesforce', 'prd')$$,
   '23514', null, 'sistema fora da lista'
 );
-select throws_ok(
-  $$delete from doctor.integrations$$, '42501', null, 'não há exclusão física: só arquivamento'
-);
+-- Exclusão física só da Integração sem histórico, por Owner ou Admin com MFA (46_integrations_delete).
+select policy_cmd_is('doctor', 'integrations', 'integrations_delete', 'delete', 'exclusão só pela policy de Owner ou Admin');
 select lives_ok(
   $$update doctor.integrations set archived_at = now() where environment = 'hml'$$, 'Admin arquiva'
 );
